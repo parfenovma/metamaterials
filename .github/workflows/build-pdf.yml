@@ -23,7 +23,6 @@ jobs:
 
       - name: Generate PDF
         run: |
-          cd src/text;
           pandoc draft1.md \
             -o coursework.pdf \
             --pdf-engine=xelatex \
