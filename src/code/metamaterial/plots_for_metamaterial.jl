@@ -28,7 +28,7 @@ end
 
 # ╔═╡ 5da2a73c-cbdd-4f63-b203-30edd7b1693f
 begin
-    SIG_DIR = "3_signals"
+    SIG_DIR = "../../../3_signals"
     
     if !isdir(SIG_DIR)
         md"There's no path for signals yet"
@@ -156,30 +156,113 @@ end
 # ╔═╡ 189539c5-d6b8-4bae-90ef-873b605ee35a
 md"""
 **Частота источника:** $(@bind f2 Select(string.(unique_F))) kHz
+$(@bind f3 Select(string.(unique_F))) kHz
+$(@bind f4 Select(string.(unique_F))) kHz
 """
 
 # ╔═╡ 4a0857d8-24b2-4165-bae0-1943f4de55da
+# begin
+#     # SIG_DIR_GLOBAL = "3_signals"
+# 	SIG_DIR_GLOBAL = SIG_DIR
+    
+#     if !isdir(SIG_DIR_GLOBAL)
+#         md"No data"
+#     else
+#         all_files = filter(f -> endswith(f, ".jld2"), readdir(SIG_DIR_GLOBAL))
+        
+#         results = Dict{Float64, Tuple{Vector{Float64}, Vector{Float64}}}()
+        
+#         for f in all_files
+#             m = match(r"data_A_([0-9.]+)_F_([0-9.]+)\.jld2$", f)
+#             if m !== nothing
+#                 curr_A = parse(Float64, m.captures[1])
+#                 curr_F = parse(Float64, m.captures[2])
+# 				if curr_F != parse(Float64,f2)
+# 					continue
+# 				end
+                
+#                 curr_data = load(joinpath(SIG_DIR_GLOBAL, f))
+                
+#                 dt_s = curr_data["time"][2] - curr_data["time"][1]
+                
+#                 env_in = abs.(hilbert(curr_data["signal_in"]))
+#                 env_out = abs.(hilbert(curr_data["signal_out"]))
+                
+#                 corr = xcorr(env_out, env_in)
+#                 max_i = argmax(corr)
+#                 shift_idx = max_i - length(curr_data["signal_in"])
+#                 curr_delay_us = shift_idx * dt_s * 1e6
+                
+#                 if !haskey(results, curr_F)
+#                     results[curr_F] = (Float64[], Float64[])
+#                 end
+#                 push!(results[curr_F][1], curr_A)
+#                 push!(results[curr_F][2], curr_delay_us)
+#             end
+#         end
+        
+#         for F in keys(results)
+#             perm = sortperm(results[F][1]) 
+#             results[F] = (results[F][1][perm], results[F][2][perm])
+#         end
+
+#         p_global = plot(
+#             title = "Зависимость Задержки от смещения",
+#             xlabel = "Амплитуда вырезов A (мм)", 
+#             ylabel = "Время задержки огибающей (мкс)",
+#             legend = :topleft,
+#             grid = true,
+#             size = (800, 500),
+#             palette = :tab10
+#         )
+            
+#         # Наносим линии по очереди
+#         for (i, F) in enumerate(sort(collect(keys(results))))
+#             a_arr, d_arr = results[F]
+            
+#             if length(a_arr) > 1
+#                 plot!(p_global, a_arr, d_arr, linewidth=2.5, marker=(:circle, 6), label="$(F) кГц")
+#             else
+#                 scatter!(p_global, a_arr, d_arr, markersize=6, label="$(F) кГц")
+#             end
+#         end
+        
+#         p_global
+#     end
+# end
+
+
+# ╔═╡ 72d3ee1e-aa52-40a9-9651-85669fc10a0b
 begin
-    SIG_DIR_GLOBAL = "3_signals"
+    SIG_DIR_GLOBAL = SIG_DIR
     
     if !isdir(SIG_DIR_GLOBAL)
-        md"No data"
+        md"Нет папки с данными!"
     else
         all_files = filter(f -> endswith(f, ".jld2"), readdir(SIG_DIR_GLOBAL))
         
-        results = Dict{Float64, Tuple{Vector{Float64}, Vector{Float64}}}()
+        target_freqs = Float64[]
+        for f_val in [f2, f3, f4] 
+            try
+                push!(target_freqs, parse(Float64, string(f_val)))
+            catch
+            end
+        end
+
+        results_delay = Dict{Float64, Tuple{Vector{Float64}, Vector{Float64}}}()
+        results_trans = Dict{Float64, Tuple{Vector{Float64}, Vector{Float64}}}()
         
         for f in all_files
             m = match(r"data_A_([0-9.]+)_F_([0-9.]+)\.jld2$", f)
             if m !== nothing
                 curr_A = parse(Float64, m.captures[1])
                 curr_F = parse(Float64, m.captures[2])
-				if curr_F != parse(Float64,f2)
-					continue
-				end
+                
+                if !(curr_F in target_freqs)
+                    continue
+                end
                 
                 curr_data = load(joinpath(SIG_DIR_GLOBAL, f))
-                
                 dt_s = curr_data["time"][2] - curr_data["time"][1]
                 
                 env_in = abs.(hilbert(curr_data["signal_in"]))
@@ -190,91 +273,104 @@ begin
                 shift_idx = max_i - length(curr_data["signal_in"])
                 curr_delay_us = shift_idx * dt_s * 1e6
                 
-                if !haskey(results, curr_F)
-                    results[curr_F] = (Float64[], Float64[])
+                curr_trans = maximum(env_out) / maximum(env_in)
+				
+                if !haskey(results_delay, curr_F)
+                    results_delay[curr_F] = (Float64[], Float64[])
                 end
-                push!(results[curr_F][1], curr_A)
-                push!(results[curr_F][2], curr_delay_us)
+                push!(results_delay[curr_F][1], curr_A)
+                push!(results_delay[curr_F][2], curr_delay_us)
+				
+                if !haskey(results_trans, curr_F)
+                    results_trans[curr_F] = (Float64[], Float64[])
+                end
+                push!(results_trans[curr_F][1], curr_A)
+                push!(results_trans[curr_F][2], curr_trans)
             end
-        end
-        
-        for F in keys(results)
-            perm = sortperm(results[F][1]) 
-            results[F] = (results[F][1][perm], results[F][2][perm])
         end
 
-        p_global = plot(
-            title = "Зависимость Задержки от смещения",
-            xlabel = "Амплитуда вырезов A (мм)", 
-            ylabel = "Время задержки огибающей (мкс)",
+        for F in keys(results_delay)
+            perm = sortperm(results_delay[F][1]) 
+            results_delay[F] = (results_delay[F][1][perm], results_delay[F][2][perm])
+            results_trans[F] = (results_trans[F][1][perm], results_trans[F][2][perm])
+        end
+
+        p_delay = plot(
+            title = "Зависимость групповой задержки от амплитуды вырезов",
+            ylabel = "Задержка (мкс)",
             legend = :topleft,
             grid = true,
-            size = (800, 500),
             palette = :tab10
         )
-            
-        # Наносим линии по очереди
-        for (i, F) in enumerate(sort(collect(keys(results))))
-            a_arr, d_arr = results[F]
-            
-            if length(a_arr) > 1
-                plot!(p_global, a_arr, d_arr, linewidth=2.5, marker=(:circle, 6), label="$(F) кГц")
-            else
-                scatter!(p_global, a_arr, d_arr, markersize=6, label="$(F) кГц")
-            end
+        for F in sort(collect(keys(results_delay)))
+            a_arr, d_arr = results_delay[F]
+            plot!(p_delay, a_arr, d_arr, linewidth=2.5, marker=(:circle, 6), label="$(F) кГц")
         end
-        
-        p_global
+
+        p_trans = plot(
+            title = "Коэффициент пропускания",
+            xlabel = "Амплитуда вырезов A (мм)", 
+            ylabel = "Относительная амплитуда",
+            legend = false,
+            grid = true,
+            palette = :tab10
+        )
+        for F in sort(collect(keys(results_trans)))
+            a_arr, t_arr = results_trans[F]
+            plot!(p_trans, a_arr, t_arr, linewidth=2.5, marker=(:square, 6))
+        end
+
+        plot(p_delay, p_trans, layout=(2, 1), size=(800, 700))
     end
 end
 
 
 # ╔═╡ d3746a92-cd56-423f-88dd-6db326681ef7
-begin
-    if ismissing(data)
-        md"Нет данных для спектра"
-    else
-        ft = data["time"]
-        fsig_in = data["signal_in"]
-        fsig_out = data["signal_out"]
+# begin
+#     if ismissing(data)
+#         md"Нет данных для спектра"
+#     else
+#         ft = data["time"]
+#         fsig_in = data["signal_in"]
+#         fsig_out = data["signal_out"]
         
-        dt_samp = ft[2] - ft[1]
-        N_orig = length(fsig_in)
+#         dt_samp = ft[2] - ft[1]
+#         N_orig = length(fsig_in)
         
-        pad_factor = 8
+#         pad_factor = 8
         
-        N_padded = nextpow(2, N_orig * pad_factor) 
+#         N_padded = nextpow(2, N_orig * pad_factor) 
         
-        sig_in_padded = vcat(fsig_in, zeros(N_padded - N_orig))
-        sig_out_padded = vcat(fsig_out, zeros(N_padded - N_orig))
+#         sig_in_padded = vcat(fsig_in, zeros(N_padded - N_orig))
+#         sig_out_padded = vcat(fsig_out, zeros(N_padded - N_orig))
         
-        freqs = fftfreq(N_padded, 1.0/dt_samp)
-        half_N = N_padded ÷ 2
-        f_kHz = freqs[1:half_N] ./ 1000.0
+#         freqs = fftfreq(N_padded, 1.0/dt_samp)
+#         half_N = N_padded ÷ 2
+#         f_kHz = freqs[1:half_N] ./ 1000.0
         
-        mag_in = abs.(fft(sig_in_padded)[1:half_N]) ./ N_orig
-        mag_out = abs.(fft(sig_out_padded)[1:half_N]) ./ N_orig
+#         mag_in = abs.(fft(sig_in_padded)[1:half_N]) ./ N_orig
+#         mag_out = abs.(fft(sig_out_padded)[1:half_N]) ./ N_orig
         
-        valid = findall(x -> x > (maximum(mag_in) * 0.01), mag_in) 
-        trans_dB = 20.0 .* log10.(mag_out[valid] ./ mag_in[valid])
+#         valid = findall(x -> x > (maximum(mag_in) * 0.01), mag_in) 
+#         trans_dB = 20.0 .* log10.(mag_out[valid] ./ mag_in[valid])
         
-        p_spec = plot(f_kHz, mag_out, 
-            title="Сглаженный выходной спектр (Zero-Padding)", 
-            ylabel="Амплитуда", color=:blue, legend=false, lw=2, xlims=(100, 400), grid=true)
+#         p_spec = plot(f_kHz, mag_out, 
+#             title="Сглаженный выходной спектр", 
+#             ylabel="Амплитуда", color=:blue, legend=false, lw=2, xlims=(100, 400), grid=true)
             
-        p_trans = plot(f_kHz[valid], trans_dB, 
-            title="Transmission (Акустический Bandgap)", 
-            xlabel="Частота (кГц)", ylabel="дБ", 
-            color=:purple, legend=false, lw=2.5, grid=true)
+#         p_trans = plot(f_kHz[valid], trans_dB, 
+#             title="Полоса пропускания", 
+#             xlabel="Частота (кГц)", ylabel="дБ", 
+#             color=:purple, legend=false, lw=2.5, grid=true)
             
-        hline!(p_trans, [0.0], color=:black, ls=:dash, lw=1.5)
+#         hline!(p_trans, [0.0], color=:black, ls=:dash, lw=1.5)
         
-        plot(p_spec, p_trans, layout=(2,1), size=(800, 500))
-    end
-end
+#         plot(p_spec, p_trans, layout=(2,1), size=(800, 500))
+#     end
+# end
 
 
-# ╔═╡ 1a42478e-1819-4f64-b260-5e26ec4450ab
+# ╔═╡ 7eeace09-e252-4091-a7ea-1a222ade7042
 
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
@@ -1611,10 +1707,11 @@ version = "1.13.0+0"
 # ╠═0ab2150b-e81e-4212-93e4-7cab34d610c5
 # ╠═07f5686a-bef4-4f46-b769-8bee8fa043ec
 # ╟─7ee8b9bd-85ae-4572-a720-55e557155d74
-# ╟─9457d70e-62f3-4f98-8770-5be69776168a
+# ╠═9457d70e-62f3-4f98-8770-5be69776168a
 # ╠═189539c5-d6b8-4bae-90ef-873b605ee35a
-# ╠═4a0857d8-24b2-4165-bae0-1943f4de55da
-# ╠═d3746a92-cd56-423f-88dd-6db326681ef7
-# ╠═1a42478e-1819-4f64-b260-5e26ec4450ab
+# ╟─4a0857d8-24b2-4165-bae0-1943f4de55da
+# ╠═72d3ee1e-aa52-40a9-9651-85669fc10a0b
+# ╟─d3746a92-cd56-423f-88dd-6db326681ef7
+# ╠═7eeace09-e252-4091-a7ea-1a222ade7042
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002

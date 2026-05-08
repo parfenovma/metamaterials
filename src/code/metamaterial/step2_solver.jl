@@ -8,7 +8,7 @@ const GMSH_LOCK = ReentrantLock()
 const PRINT_LOCK = ReentrantLock()
 
 AMPLITUDES = [0.0, 0.6, 1.2, 1.6, 1.9, 2.2, 2.5, 2.6, 2.7, 2.8, 3.0, 3.2, 3.4, 3.6]
-FREQUENCIES = [150e3, 120e3, 100e3]
+FREQUENCIES = [150e3, 120e3, 100e3, 200e3, 220e3, 300e3, 500e3, 830e3]
 SAVE_VTK = true
 
 MESH_DIR = "1_meshes"
