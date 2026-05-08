@@ -1,0 +1,41 @@
+name: Build PDF with Pandoc
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build-pdf:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Pandoc and LaTeX
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pandoc texlive-xetex texlive-lang-cyrillic fonts-liberation
+
+      - name: Generate PDF
+        run: |
+          pandoc src/text/draft1.md \
+            -o coursework.pdf \
+            --pdf-engine=xelatex \
+            -V mainfont="Liberation Serif" \
+            -V monofont="Liberation Mono" \
+            -V lang=ru-RU \
+            -V geometry:margin=2cm \
+            --toc \
+            --toc-depth=2 \
+            --number-sections
+
+      - name: Upload PDF
+        uses: actions/upload-artifact@v4
+        with:
+          name: Coursework-PDF
+          path: coursework.pdf
