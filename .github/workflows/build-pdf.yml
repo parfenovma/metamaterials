@@ -23,7 +23,7 @@ jobs:
 
       - name: Generate PDF
         run: |
-          pandoc draft1.md \
+          pandoc text.md \
             -o coursework.pdf \
             --pdf-engine=xelatex \
             -V mainfont="Liberation Serif" \
