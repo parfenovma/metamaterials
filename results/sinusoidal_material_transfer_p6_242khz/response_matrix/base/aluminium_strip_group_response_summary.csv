@@ -1,0 +1,2 @@
+frequency_hz,selected_focus_ux_m,uniform_focus_ux_m,current_gain,phase_aligned_gain,coherence_efficiency,maximum_abs_phase_error_deg,selected_preout_offdiagonal_l2_over_diagonal,uniform_preout_offdiagonal_l2_over_diagonal
+242000.0,2.1044346765676072e-8,1.288396468569356e-8,1.6333750735162953,2.9842261714713803,0.5473362204014702,147.51347150953407,0.5569489426560835,0.5361587546398746

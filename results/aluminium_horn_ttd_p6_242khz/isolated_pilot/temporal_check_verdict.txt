@@ -1,0 +1,15 @@
+PASS
+relative_peak_gate_change=0.006006963263701426
+resolution=130us_40spp
+final_time_us=130.06198347107687
+samples_per_period=40
+peak_over_equal_path=1.0036147142552692
+envelope_peak_over_equal_path=0.9965023080758366
+energy_over_equal_path=0.996437371822693
+broadening_ratio=1.0
+pulse_correlation=0.9999719941665769
+postcursor_ratio=0.09717881566853609
+transverse_energy_ratio=0.005229710964965974
+maximum_minus_equal_envelope_delay_us=0.30991735537190673
+maximum_tail_envelope_over_peak=0.016483025860341394
+equal_tail_envelope_over_peak=0.015418742472025253

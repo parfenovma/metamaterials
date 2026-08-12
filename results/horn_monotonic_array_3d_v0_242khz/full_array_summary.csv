@@ -1,0 +1,2 @@
+focus_exists,focus_ux_nm,local_peak_x_mm,local_peak_y_mm,target_transverse_fwhm_mm,beam_waist_x_mm,beam_waist_fwhm_mm,phase_fit_focal_mm,center_to_outer_amplitude,sidelobe_amplitude_ratio,maximum_output_phase_error_deg
+true,3.893043800935517,30.0,-1.0,5.0,30.0,3.0,36.8,5.280470111662937,0.3721629336807599,12.717097485992376

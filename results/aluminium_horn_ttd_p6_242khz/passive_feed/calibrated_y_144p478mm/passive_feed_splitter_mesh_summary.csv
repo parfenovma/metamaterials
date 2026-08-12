@@ -1,0 +1,2 @@
+nodes,elements,input_width_mm,small_junction_width_mm,large_junction_width_mm,output_width_mm,transformer_length_mm,output_center_offset_mm,target_output_amplitude_ratio,small_adiabatic_parameter,large_adiabatic_parameter
+23220,47420,7.0,1.3690444172878802,5.63095558271212,7.0,144.4780677722518,6.0,0.49308037602040306,0.038237505647577906,0.00509969403866819

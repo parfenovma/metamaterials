@@ -1,0 +1,15 @@
+STOP: every tested passive one-input feed is below the G_peak = 2 gate.
+straight_modal_Tfund=1.0000903418423162
+equal_splitter_Tfund=0.9420469907840849
+unequal_splitter_Tfund=0.9686039905811457
+unequal_ratio=0.4104547865227719
+unequal_phase_deg=79.805935366471
+global_manifold_Tfund=0.05279685690649126
+global_manifold_coherence=0.13101323701824366
+mmi_reduced_best_coherence=0.6827025231058027
+tree_useful_efficiency_upper_bound=0.8766895108684404
+tree_required_efficiency=0.8849292609146894
+pulse_power_only_gain_upper_bound=1.9906670276221772
+carrier_power_only_gain_upper_bound=1.9216969958719166
+routed_profile_carrier_gain=1.804980057189602
+broadband_full_tree_solve=SKIPPED_BY_CARRIER_GATE

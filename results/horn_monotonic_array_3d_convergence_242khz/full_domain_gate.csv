@@ -1,0 +1,2 @@
+baseline_gain,refined_gain,relative_gain_change,baseline_lens_fwhm_mm,refined_lens_fwhm_mm,fwhm_change_mm,refined_max_pair_amplitude_mismatch,refined_max_pair_phase_mismatch_deg,gain_stable,fwhm_stable,amplitude_symmetric,phase_symmetric,passed
+1.4721233621935859,1.5931738169055456,0.07598069553206602,5.0,6.0,1.0,0.12808024737711773,3.791651415432855,false,true,false,false,false

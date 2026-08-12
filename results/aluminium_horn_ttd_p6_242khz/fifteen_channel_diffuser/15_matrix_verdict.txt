@@ -1,0 +1,5 @@
+current_gain=1.8202407747694629
+coherence_efficiency=0.9777608426610075
+phase_aligned_ceiling=1.8616421269393642
+correction_allowed=false
+target_phase_deg=136.65

@@ -3,3 +3,6 @@
 *.gif
 *.mp4
 .zprofile
+.DS_Store
+tmp/
+1_models/

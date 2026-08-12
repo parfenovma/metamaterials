@@ -1,23 +1,38 @@
 using Gridap
 using Gridap.ODEs
-using GridapGmsh
 using JLD2
 
+if !isdefined(@__MODULE__, :MetamaterialProfiles)
+    include(joinpath(@__DIR__, "profiles.jl"))
+end
+using .MetamaterialProfiles
 
-const GMSH_LOCK = ReentrantLock()
 const PRINT_LOCK = ReentrantLock()
+const DATA_FORMAT_VERSION = 2
 
-AMPLITUDES = [0.0, 0.6, 1.2, 1.6, 1.9, 2.2, 2.5, 2.6, 2.7, 2.8, 3.0, 3.2, 3.4, 3.6]
-FREQUENCIES = [150e3, 120e3, 100e3, 200e3, 220e3, 300e3, 500e3, 830e3]
-SAVE_VTK = true
+Base.@kwdef struct MaterialConfig
+    density::Float64 = 1210.0
+    pressure_wave_speed::Float64 = 2340.0
+    shear_wave_speed::Float64 = 1170.0
+    rayleigh_alpha::Float64 = 79560.0
+    rayleigh_beta::Float64 = 2.5e-9
+end
 
-MESH_DIR = "1_meshes"
-VTK_DIR = "2_vtks"
-SIG_DIR = "3_signals"
-
-mkpath(VTK_DIR)
-mkpath(SIG_DIR)
-
+Base.@kwdef struct SimulationConfig
+    frequencies_hz::Vector{Float64} = [100e3, 120e3, 150e3, 200e3, 220e3, 300e3, 500e3, 830e3]
+    final_time_s::Float64 = 60.0e-6
+    samples_per_period::Int = 30
+    pulse_cycles::Float64 = 4.0
+    pressure_amplitude_pa::Float64 = 1.0e6
+    element_order::Int = 1
+    quadrature_degree::Int = 2
+    save_vtk::Bool = false
+    skip_existing::Bool = false
+    right_boundary_condition::Symbol = :absorbing
+    model_dir::String = "1_models"
+    vtk_dir::String = "2_vtks"
+    signal_dir::String = "3_signals"
+end
 
 function safe_println(args...)
     lock(PRINT_LOCK) do
@@ -26,123 +41,272 @@ function safe_println(args...)
     end
 end
 
-function run_acoustic_simulation(A, freq)
-    mesh_file = joinpath(MESH_DIR, "mesh_A_$(A).msh")
-    if !isfile(mesh_file)
-        println("  [!] Пропуск: Сетка $mesh_file не найдена!")
-        return
+function struct_description(value)
+    fields = Dict{String, Any}()
+    for name in fieldnames(typeof(value))
+        fields[string(name)] = getfield(value, name)
+    end
+    string(nameof(typeof(value))), fields
+end
+
+profile_description(profile::WallProfile) = struct_description(profile)
+
+function pulse_signal(t, frequency_hz, cycles)
+    duration = cycles / frequency_hz
+    t < duration ?
+        0.5 * (1.0 - cos(2.0 * pi * t / duration)) * sin(2.0 * pi * frequency_hz * t) :
+        0.0
+end
+
+function time_derivative(time::AbstractVector, values::AbstractVector)
+    length(time) == length(values) || throw(DimensionMismatch("time and values must have equal lengths"))
+    length(time) >= 2 || return zeros(Float64, length(time))
+
+    derivative = similar(values, Float64)
+    derivative[1] = (values[2] - values[1]) / (time[2] - time[1])
+    for i in 2:(length(time) - 1)
+        derivative[i] = (values[i + 1] - values[i - 1]) / (time[i + 1] - time[i - 1])
+    end
+    derivative[end] = (values[end] - values[end - 1]) / (time[end] - time[end - 1])
+    derivative
+end
+
+
+function absorbing_traction(velocity, normal, material::MaterialConfig)
+    velocity_normal = (velocity ⋅ normal) * normal
+    velocity_tangent = velocity - velocity_normal
+    material.density * material.pressure_wave_speed * velocity_normal +
+        material.density * material.shear_wave_speed * velocity_tangent
+end
+
+
+function run_acoustic_simulation(
+    profile::WallProfile,
+    frequency_hz::Real;
+    material::MaterialConfig=MaterialConfig(),
+    simulation::SimulationConfig=SimulationConfig(),
+)
+    simulation.right_boundary_condition in (:absorbing, :free_reflecting) ||
+        throw(ArgumentError(
+            "right_boundary_condition must be :absorbing or :free_reflecting",
+        ))
+    slug = profile_slug(profile)
+    model_file = joinpath(simulation.model_dir, "model_$(slug).json")
+    if !isfile(model_file)
+        safe_println("  [!] Skipped: Gridap model $model_file was not found; run step1b_convert_models.jl")
+        return nothing
     end
 
-    freq_khz = round(Int, freq / 1000)
-    safe_println("-> Start:  A=$A, freq=$(freq_khz) kHz on thread $(Threads.threadid())")
+    # `run_acoustic_simulation` is also a public single-job entry point used by
+    # process-based sweeps, so it must not rely on `run_sweep` creating these.
+    mkpath(simulation.signal_dir)
+    simulation.save_vtk && mkpath(simulation.vtk_dir)
 
-    model = lock(GMSH_LOCK) do
-        GmshDiscreteModel(mesh_file)
+    frequency_hz = Float64(frequency_hz)
+    frequency_khz = frequency_hz / 1000.0
+    boundary_suffix = simulation.right_boundary_condition == :absorbing ?
+                      "" : "_BC_$(simulation.right_boundary_condition)"
+    save_path = joinpath(
+        simulation.signal_dir,
+        "data_$(slug)_F_$(frequency_khz)$(boundary_suffix).jld2",
+    )
+    if simulation.skip_existing && isfile(save_path)
+        safe_println("  [=] Existing result: $save_path")
+        return save_path
     end
-    rho_solid = 1210.0; cp_solid = 2340.0; cs_solid = 1170.0      
-    mu_solid = rho_solid * cs_solid^2; lam_solid = rho_solid * cp_solid^2 - 2*mu_solid 
-    alpha_damp = 79560.0; beta_damp = 2.5e-9
+    safe_println("-> Start: $slug, frequency=$(frequency_khz) kHz, thread=$(Threads.threadid())")
 
-    function pzt_signal(t)
-        duration = 4.0 / freq
-        t < duration ? 0.5 * (1.0 - cos(2.0 * pi * t / duration)) * sin(2.0 * pi * freq * t) : 0.0
-    end
+    model = DiscreteModelFromFile(model_file)
 
-    reffe_vec = ReferenceFE(lagrangian, VectorValue{2, Float64}, 1)
-    V0 = TestFESpace(model, reffe_vec, conformity=:H1) 
-    U = TransientTrialFESpace(V0)
+    rho = material.density
+    cp = material.pressure_wave_speed
+    cs = material.shear_wave_speed
+    mu = rho * cs^2
+    lambda = rho * cp^2 - 2.0 * mu
 
+    sigma(strain) = lambda * tr(strain) * one(strain) + 2.0 * mu * strain
+    drive(t) = pulse_signal(t, frequency_hz, simulation.pulse_cycles)
 
-    degree = 2
-    Ω = Triangulation(model); dΩ = Measure(Ω, degree)
-    Γ_out = BoundaryTriangulation(model, tags=["Microphone"]); dΓ_out = Measure(Γ_out, degree)
-    Γ_in = BoundaryTriangulation(model, tags=["Source"]); dΓ_in = Measure(Γ_in, degree)
-    n_out = VectorValue(1.0, 0.0); n_in = VectorValue(-1.0, 0.0)
+    reference_element = ReferenceFE(
+        lagrangian,
+        VectorValue{2, Float64},
+        simulation.element_order,
+    )
+    test_space = TestFESpace(model, reference_element, conformity=:H1)
+    trial_space = TransientTrialFESpace(test_space)
 
-    function absorbing_traction(∂tu, n)
-        ∂tu_n = (∂tu ⋅ n) * n
-        ∂tu_t = ∂tu - ∂tu_n
-        return rho_solid * cp_solid * ∂tu_n + rho_solid * cs_solid * ∂tu_t
-    end
+    domain = Triangulation(model)
+    domain_measure = Measure(domain, simulation.quadrature_degree)
+    left_port = BoundaryTriangulation(model, tags=["Source"])
+    right_port = BoundaryTriangulation(model, tags=["Microphone"])
+    left_measure = Measure(left_port, simulation.quadrature_degree)
+    right_measure = Measure(right_port, simulation.quadrature_degree)
 
-    σ(ε) = lam_solid * tr(ε) * one(ε) + 2.0 * mu_solid * ε
-    P_amplitude = 1e6 
+    # The current meshes have vertical ports. These explicit conventions are
+    # recorded in the output and will later be replaced by modal port objects.
+    normal_left = VectorValue(-1.0, 0.0)
+    normal_right = VectorValue(1.0, 0.0)
+    tangent = VectorValue(0.0, 1.0)
+    right_absorption_weight = simulation.right_boundary_condition == :absorbing ? 1.0 : 0.0
 
-    res(t, u, v) = ∫( rho_solid * ∂tt(u) ⋅ v + alpha_damp * rho_solid * ∂t(u) ⋅ v + 
-                      beta_damp * (σ∘(ε(∂t(u))) ⊙ ε(v)) + σ∘(ε(u)) ⊙ ε(v) )dΩ +
-                   ∫( absorbing_traction(∂t(u), n_out) ⋅ v )dΓ_out +
-                   ∫( absorbing_traction(∂t(u), n_in) ⋅ v )dΓ_in -
-                   ∫( (P_amplitude * pzt_signal(t)) * (n_in ⋅ v) )dΓ_in
+    residual(t, u, v) =
+        ∫(
+            rho * ∂tt(u) ⋅ v +
+            material.rayleigh_alpha * rho * ∂t(u) ⋅ v +
+            material.rayleigh_beta * (sigma ∘ (ε(∂t(u))) ⊙ ε(v)) +
+            sigma ∘ (ε(u)) ⊙ ε(v),
+        )domain_measure +
+        ∫(right_absorption_weight * absorbing_traction(∂t(u), normal_right, material) ⋅ v)right_measure +
+        ∫(absorbing_traction(∂t(u), normal_left, material) ⋅ v)left_measure -
+        ∫((simulation.pressure_amplitude_pa * drive(t)) * (normal_left ⋅ v))left_measure
 
-    jac(t, u, du, v) = ∫( σ∘(ε(du)) ⊙ ε(v) )dΩ
-    
-    jac_t(t, u, dut, v) = ∫( alpha_damp * rho_solid * dut ⋅ v + beta_damp * (σ∘(ε(dut)) ⊙ ε(v)) )dΩ +
-                          ∫( absorbing_traction(dut, n_out) ⋅ v )dΓ_out + 
-                          ∫( absorbing_traction(dut, n_in) ⋅ v )dΓ_in
-                          
-    jac_tt(t, u, dutt, v) = ∫( rho_solid * dutt ⋅ v )dΩ
+    jacobian(t, u, du, v) = ∫(sigma ∘ (ε(du)) ⊙ ε(v))domain_measure
+    jacobian_t(t, u, dut, v) =
+        ∫(
+            material.rayleigh_alpha * rho * dut ⋅ v +
+            material.rayleigh_beta * (sigma ∘ (ε(dut)) ⊙ ε(v)),
+        )domain_measure +
+        ∫(right_absorption_weight * absorbing_traction(dut, normal_right, material) ⋅ v)right_measure +
+        ∫(absorbing_traction(dut, normal_left, material) ⋅ v)left_measure
+    jacobian_tt(t, u, dutt, v) = ∫(rho * dutt ⋅ v)domain_measure
 
-    t1 = 60.0e-6
-    dt = (1.0 / freq) / 30.0  
-    op = TransientFEOperator(res, (jac, jac_t, jac_tt), U, V0)
-    
-    U_at_t0 = U(0.0)
-    uh0 = interpolate_everywhere(x -> VectorValue(0.0, 0.0), U_at_t0)
-    vh0 = interpolate_everywhere(x -> VectorValue(0.0, 0.0), U_at_t0)
-    
-    nonlinear_solver = NLSolver(show_trace=false, method=:newton) 
-    ode_solver = Newmark(nonlinear_solver, dt, 0.5, 0.25)
-    sol_t = solve(ode_solver, op, 0.0, t1, (uh0, vh0))
+    dt = (1.0 / frequency_hz) / simulation.samples_per_period
+    operator = TransientFEOperator(
+        residual,
+        (jacobian, jacobian_t, jacobian_tt),
+        trial_space,
+        test_space,
+    )
 
-    time_history = Float64[]
-    signal_history_out_MPa = Float64[]
-    L_mic = sum( ∫( 1.0 )dΓ_out )
+    trial_at_t0 = trial_space(0.0)
+    displacement_0 = interpolate_everywhere(x -> VectorValue(0.0, 0.0), trial_at_t0)
+    velocity_0 = interpolate_everywhere(x -> VectorValue(0.0, 0.0), trial_at_t0)
 
-    pvd = SAVE_VTK ? createpvd(joinpath(VTK_DIR, "anim_A_$(A)_F_$(freq/1000)")) : nothing
-    step = 0
-    
-    for (step, (tn, uh)) in enumerate(sol_t)
-        push!(time_history, tn)
-        int_pressure = sum( ∫( - n_out ⋅ (σ∘(ε(uh)) ⋅ n_out) )dΓ_out )
-        push!(signal_history_out_MPa, (int_pressure / L_mic) / 1e6)
+    nonlinear_solver = NLSolver(show_trace=false, method=:newton)
+    time_solver = Newmark(nonlinear_solver, dt, 0.5, 0.25)
+    solution = solve(
+        time_solver,
+        operator,
+        0.0,
+        simulation.final_time_s,
+        (displacement_0, velocity_0),
+    )
 
-        if SAVE_VTK && step % 3 == 0
-            pvd[tn] = createvtk(Ω,
-                joinpath(VTK_DIR, "anim_A_$(A)_F_$(freq_khz)_$(step).vtu"),
-                cellfields=["u" => uh])
+    time = Float64[]
+    left_normal_displacement_m = Float64[]
+    left_tangent_displacement_m = Float64[]
+    right_normal_displacement_m = Float64[]
+    right_tangent_displacement_m = Float64[]
+    left_normal_traction_mpa = Float64[]
+    left_tangent_traction_mpa = Float64[]
+    right_normal_traction_mpa = Float64[]
+    right_tangent_traction_mpa = Float64[]
+
+    left_length = sum(∫(1.0)left_measure)
+    right_length = sum(∫(1.0)right_measure)
+    pvd = simulation.save_vtk ?
+          createpvd(joinpath(simulation.vtk_dir, "anim_$(slug)_F_$(frequency_khz)")) :
+          nothing
+
+    for (step, (current_time, displacement)) in enumerate(solution)
+        stress = sigma ∘ (ε(displacement))
+        traction_left = stress ⋅ normal_left
+        traction_right = stress ⋅ normal_right
+
+        push!(time, current_time)
+        push!(left_normal_displacement_m, sum(∫(displacement ⋅ normal_left)left_measure) / left_length)
+        push!(left_tangent_displacement_m, sum(∫(displacement ⋅ tangent)left_measure) / left_length)
+        push!(right_normal_displacement_m, sum(∫(displacement ⋅ normal_right)right_measure) / right_length)
+        push!(right_tangent_displacement_m, sum(∫(displacement ⋅ tangent)right_measure) / right_length)
+        push!(left_normal_traction_mpa, sum(∫(normal_left ⋅ traction_left)left_measure) / left_length / 1.0e6)
+        push!(left_tangent_traction_mpa, sum(∫(tangent ⋅ traction_left)left_measure) / left_length / 1.0e6)
+        push!(right_normal_traction_mpa, sum(∫(normal_right ⋅ traction_right)right_measure) / right_length / 1.0e6)
+        push!(right_tangent_traction_mpa, sum(∫(tangent ⋅ traction_right)right_measure) / right_length / 1.0e6)
+
+        if simulation.save_vtk && step % 3 == 0
+            pvd[current_time] = createvtk(
+                domain,
+                joinpath(simulation.vtk_dir, "anim_$(slug)_F_$(frequency_khz)_$(step).vtu"),
+                cellfields=["u" => displacement],
+            )
         end
     end
 
-    
-    if SAVE_VTK; savepvd(pvd); end
+    simulation.save_vtk && savepvd(pvd)
 
-    # dump all info to jld2 file
-    in_signal_history = (P_amplitude / 1e6) .* pzt_signal.(time_history)
-
-    save_path = joinpath(SIG_DIR, "data_A_$(A)_F_$(freq/1000).jld2")
-    jldsave(save_path; 
-        A = A, 
-        freq = freq, 
-        time = time_history, 
-        signal_in = in_signal_history, 
-        signal_out = signal_history_out_MPa
+    source_drive_mpa = (simulation.pressure_amplitude_pa / 1.0e6) .* drive.(time)
+    left_normal_velocity_m_per_s = time_derivative(time, left_normal_displacement_m)
+    left_tangent_velocity_m_per_s = time_derivative(time, left_tangent_displacement_m)
+    right_normal_velocity_m_per_s = time_derivative(time, right_normal_displacement_m)
+    right_tangent_velocity_m_per_s = time_derivative(time, right_tangent_displacement_m)
+    profile_type, profile_parameters = profile_description(profile)
+    _, material_parameters = struct_description(material)
+    _, simulation_parameters = struct_description(simulation)
+    jldsave(
+        save_path;
+        data_format_version=DATA_FORMAT_VERSION,
+        profile_type,
+        profile_parameters,
+        frequency_hz,
+        time_s=time,
+        source_drive_mpa,
+        left_normal_displacement_m,
+        left_tangent_displacement_m,
+        right_normal_displacement_m,
+        right_tangent_displacement_m,
+        left_normal_velocity_m_per_s,
+        left_tangent_velocity_m_per_s,
+        right_normal_velocity_m_per_s,
+        right_tangent_velocity_m_per_s,
+        left_normal_traction_mpa,
+        left_tangent_traction_mpa,
+        right_normal_traction_mpa,
+        right_tangent_traction_mpa,
+        port_normal_left=Tuple(normal_left),
+        port_normal_right=Tuple(normal_right),
+        port_tangent=Tuple(tangent),
+        material_parameters,
+        simulation_parameters,
+        # Compatibility aliases for the existing Pluto notebook.
+        A=amplitude_mm(profile),
+        freq=frequency_hz,
+        time=time,
+        signal_in=source_drive_mpa,
+        signal_out=-right_normal_traction_mpa,
     )
-    
-    safe_println("  [+] Done: A=$A, Freq=$(freq_khz) kHz -> saved to $save_path")
+
+    safe_println("  [+] Done: $slug, frequency=$(frequency_khz) kHz -> $save_path")
+    save_path
 end
 
-println("=== Start evaluation: $(Threads.nthreads()) ===")
+function run_sweep(
+    profiles::AbstractVector{<:WallProfile};
+    material::MaterialConfig=MaterialConfig(),
+    simulation::SimulationConfig=SimulationConfig(),
+)
+    mkpath(simulation.vtk_dir)
+    mkpath(simulation.signal_dir)
+    tasks = [(profile, frequency) for profile in profiles for frequency in simulation.frequencies_hz]
 
-tasks = [(A, freq) for A in AMPLITUDES for freq in FREQUENCIES]
-
-
-Threads.@threads for params in tasks
-    A, freq = params
-    try
-        run_acoustic_simulation(A, freq)
-    catch e
-        safe_println("  [ERROR] A=$A, freq=$freq: ", sprint(showerror, e))
+    Threads.@threads for task in tasks
+        profile, frequency = task
+        try
+            run_acoustic_simulation(profile, frequency; material, simulation)
+        catch error
+            safe_println("  [ERROR] $(profile_slug(profile)), frequency=$frequency: ", sprint(showerror, error))
+        end
     end
 end
 
-println("=== Evaluation is complete! ===")
+function main()
+    amplitudes = [0.0, 0.6, 1.2, 1.6, 1.9, 2.2, 2.5, 2.6, 2.7, 2.8, 3.0, 3.2, 3.4, 3.6]
+    profiles = WallProfile[LegacySinusoidalProfile(A) for A in amplitudes]
+    simulation = SimulationConfig()
+    println("=== Start evaluation: $(Threads.nthreads()) threads ===")
+    run_sweep(profiles; simulation)
+    println("=== Evaluation completed ===")
+end
+
+if abspath(PROGRAM_FILE) == @__FILE__
+    main()
+end

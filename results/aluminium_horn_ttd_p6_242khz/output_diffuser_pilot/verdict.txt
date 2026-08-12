@@ -1,0 +1,4 @@
+PASS: output diffuser improves equal-energy target amplitude.
+maximum_over_abrupt_equal_power=1.2533116819044645
+pulse_peak_over_equal=1.0031666550945642
+postcursor=0.09240334633678246

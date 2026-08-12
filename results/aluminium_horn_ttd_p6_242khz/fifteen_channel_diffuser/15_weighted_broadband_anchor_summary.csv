@@ -1,0 +1,2 @@
+lower_frequency_hz,carrier_frequency_hz,upper_frequency_hz,band_spectral_energy_fraction,equal_energy_scale,provisional_impulse_peak_gain,carrier_equal_power_gain,broadening_ratio,pulse_correlation,postcursor_ratio,lower_phase_step_deg,upper_phase_step_deg,interpolation_reliable,passed_to_dense
+193800.0,242000.0,290100.0,0.9161934298994359,1.2697082897276621,1.9575137235600786,2.0524018311994787,1.1654411764705883,0.9662382292462337,0.07837177759803973,14.456938268237826,-71.6010444389971,true,true
