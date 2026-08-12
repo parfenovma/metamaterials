@@ -1,6 +1,0 @@
-PASS: advance to a small coupled Al aperture.
-peak/equal_path=0.9976220353379351
-Bt/equal_path=1.0103092783505154
-rho/equal_path=0.9999019018442374
-postcursor=0.09758013294837561
-transverse_energy=0.00520466760898618

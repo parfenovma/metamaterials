@@ -1,2 +1,0 @@
-pulse_cycles,lower_frequency_hz,upper_frequency_hz,band_spectral_energy_fraction,equal_energy_scale,impulse_peak_gain,carrier_equal_power_gain,broadening_ratio,pulse_correlation,postcursor_ratio,maximum_phase_step_deg,interpolation_reliable,passed
-30.0,226040.0,257940.0,0.9994853907584428,1.4376922424230714,2.1260609847797616,2.0503199475531586,1.1408071748878923,0.9804642395976993,0.049735599761784405,88.97046414143135,true,true

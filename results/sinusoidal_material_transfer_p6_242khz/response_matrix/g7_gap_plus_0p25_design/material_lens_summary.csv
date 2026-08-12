@@ -1,4 +1,0 @@
-configuration,lens_material,output_material,matching_material,matching_thickness_mm,cell_length_mm,harmonic_focus_amplitude,pulse_peak_amplitude,pulse_peak_time_us,uniform_pulse_peak_amplitude,focus_gain_over_uniform
-polymer_direct,project_photopolymer,aluminium_6061,none,0.0,12.0,1.913421252677641,1.7336391640523137,26.08471074380165,1.0463606335718296,1.6568275873819984
-polymer_matched,project_photopolymer,aluminium_6061,geometric_impedance_match,3.5,12.0,2.43693647127333,2.3007373740193997,26.988636363636363,1.4215869637047676,1.6184288634889399
-aluminium,aluminium_6061,aluminium_6061,none,0.0,28.0,1.2804830442566713,1.2208247729296573,25.568181818181817,0.7645999347569866,1.5966843802016186

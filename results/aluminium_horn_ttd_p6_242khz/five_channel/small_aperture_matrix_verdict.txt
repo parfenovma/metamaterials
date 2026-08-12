@@ -1,6 +1,0 @@
-current_gain=1.0399707748180143
-coherence_efficiency=0.795245238066142
-phase_aligned_ceiling=1.3077359348255764
-phase_slope_deg_per_mm=18.17468215581305
-carrier_cycle_mm=19.807774183542268
-next=one calculated passive path correction, then stop or advance

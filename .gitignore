@@ -6,3 +6,9 @@
 .DS_Store
 tmp/
 1_models/
+
+# Generated research outputs: keep only Markdown summaries in Git.
+results/**
+!results/**/
+!results/**/*.md
+coursework.generated.pdf

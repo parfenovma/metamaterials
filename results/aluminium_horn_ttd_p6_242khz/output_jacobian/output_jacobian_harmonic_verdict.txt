@@ -1,4 +1,0 @@
-STOP: output transition area does not reproduce the required weights.
-extreme_ratio_error=-0.7808999398648548
-edge_phase_shift_deg=44.19333025977824
-center_phase_shift_deg=102.75761092580522

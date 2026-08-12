@@ -1,2 +1,0 @@
-lower_frequency_hz,upper_frequency_hz,band_spectral_energy_fraction,selected_peak_m,uniform_peak_m,impulse_peak_gain,carrier_gain,scalar_ideal_same_aperture_peak_gain,broadening_ratio,pulse_correlation,postcursor_ratio,gate_passed
-162200.0,321700.0,0.9981501771729457,2.168054560041909e-8,1.5901530145774e-8,1.3634251170589973,1.6333750735162027,3.1824505755007495,0.8642533936651585,0.9793743088408113,0.06439292163697329,false

@@ -1,2 +1,0 @@
-current_equal_power_gain,optimized_nonnegative_equal_power_gain,uniform_power_w,reconstructed_lens_power_w,stored_lens_power_w,power_reconstruction_relative_error,minimum_power_matrix_eigenvalue,minimum_weight,maximum_weight,passed
-1.5401041975307217,1.8336874318691838,8.991541179702033,13.443944397717106,13.443944397718816,-1.2723155862204294e-13,0.49546625585838155,0.24113577820967005,1.6114949716763904,false

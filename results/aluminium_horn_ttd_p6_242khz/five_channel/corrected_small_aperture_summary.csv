@@ -1,2 +1,0 @@
-variant,lens_focus_ux_nm,uniform_focus_ux_nm,pressure_gain,lens_active_power_w,uniform_active_power_w,power_normalized_gain,ideal_scalar_gain,ideal_efficiency,matrix_ceiling,ceiling_efficiency,lens_fwhm_mm,local_peak_x_mm,local_peak_y_mm,transverse_energy_ratio,passed
-corrected,0.6201142285453853,0.5057920023164189,1.2260261643232697,3.251414236478416,2.471145731018172,1.0688401661610036,1.802987702337871,0.5928161155925112,1.3077359348255764,0.9375181423662531,8.0,35.0,-14.0,5.709867506294794e-6,false

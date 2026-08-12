@@ -1,2 +1,0 @@
-nodes,elements,input_width_mm,aperture_width_mm,channel_count,channel_width_mm,channel_gap_mm,transformer_length_mm,required_transformer_length_mm,input_straight_length_mm,output_straight_length_mm
-64234,129486,7.0,121.8,15,7.0,1.2,194.0,193.4127058472977,20.0,20.0

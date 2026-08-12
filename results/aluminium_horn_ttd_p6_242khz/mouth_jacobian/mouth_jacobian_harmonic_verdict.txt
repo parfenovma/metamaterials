@@ -1,4 +1,0 @@
-STOP: physical input-mouth area does not reproduce the required weights.
-extreme_ratio_error=-0.7649200533910046
-edge_phase_shift_deg=48.31025370146514
-center_phase_shift_deg=120.37073479032

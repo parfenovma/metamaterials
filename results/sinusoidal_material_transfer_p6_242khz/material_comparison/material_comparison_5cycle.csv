@@ -1,4 +1,0 @@
-configuration,selected_focus_ux_m,uniform_focus_ux_m,matching_thickness_mm,frequency_hz,source_traction_pa,fem_element_order,focus_gain,note
-photopolymer_direct,1.2579619011505546e-8,8.295559525026168e-9,0.0,242000.0,1.0e6,1,1.5164280327993747,5-cycle profile equals 4-cycle profile exactly
-photopolymer_match_3p5mm,8.086463664313853e-9,1.1812871318287734e-8,3.5,242000.0,1.0e6,1,0.6845468342480835,5-cycle profile; geometric-mean matching layer
-aluminium_to_aluminium,2.104434676567495e-8,1.2883964685693604e-8,0.0,242000.0,1.0e6,1,1.6333750735162027,5-cycle profile equals 4-cycle profile exactly

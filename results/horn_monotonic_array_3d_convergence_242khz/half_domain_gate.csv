@@ -1,2 +1,0 @@
-baseline_gain,phase_refined_gain,relative_gain_change,baseline_lens_fwhm_mm,phase_refined_lens_fwhm_mm,fwhm_change_mm,full_refined_gain,half_refined_to_full_refined_gain_difference,gain_stable,fwhm_stable,symmetry_exact,passed
-2.1351469577421245,2.1141286425833736,0.009941833592996207,4.0,4.0,0.0,1.5931738169055456,0.10214300223894428,true,true,true,true
