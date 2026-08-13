@@ -20,7 +20,7 @@ export AcousticMaterial,
        halfwave_zone_radii_mm,
        layer_transmission,
        level_transfer,
-       pulse_metrics,
+       fresnel_pulse_metrics,
        radial_transfer,
        scalar_aperture_transfer,
        lateral_profile,
@@ -322,7 +322,7 @@ function energy_width_samples(signal::AbstractVector, fraction::Real=0.9)
     max(1, upper - lower + 1)
 end
 
-function pulse_metrics(
+function fresnel_pulse_metrics(
     transfer::Function;
     frequency_hz::Real=242.0e3,
     cycles::Real=5.0,

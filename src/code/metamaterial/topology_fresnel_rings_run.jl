@@ -58,7 +58,7 @@ function level_metrics(level, design, frequencies_hz, weights; loss_scale=1.0)
     transfer = [level_transfer(level, design, f; loss_scale) for f in frequencies_hz]
     complex_t = getproperty.(transfer, :transmission)
     group = weighted_group_delay_s(complex_t, frequencies_hz, weights)
-    pulse = pulse_metrics(f -> level_transfer(level, design, f; loss_scale).transmission)
+    pulse = fresnel_pulse_metrics(f -> level_transfer(level, design, f; loss_scale).transmission)
     (
         weighted_transmission=weighted_mean(getproperty.(transfer, :power_transmission), weights),
         weighted_reflection=weighted_mean(getproperty.(transfer, :power_reflection), weights),
@@ -174,7 +174,7 @@ function aperture_metrics(design, topology; loss_scale=1.0)
     fc = design.config.stand.frequency_hz
     response = scalar_aperture_transfer(design, fc, topology; loss_scale)
     bare = scalar_aperture_transfer(design, fc, :bare)
-    pulse = pulse_metrics(
+    pulse = fresnel_pulse_metrics(
         f -> scalar_aperture_transfer(
             design,
             f,
