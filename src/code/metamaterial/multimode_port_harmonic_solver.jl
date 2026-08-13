@@ -1,7 +1,6 @@
 module MultimodePortHarmonicSolver
 
 using Gridap
-using GridapGmsh
 using LinearAlgebra
 using SparseArrays
 
@@ -218,7 +217,14 @@ function solve_multimode_port_harmonic(
 )
     isfile(mesh_path) || error("mesh not found: $mesh_path")
     isempty(output_tags) && throw(ArgumentError("at least one output port is required"))
-    model = GmshDiscreteModel(mesh_path)
+    model = if endswith(lowercase(mesh_path), ".json")
+        DiscreteModelFromFile(mesh_path)
+    else
+        # Load GridapGmsh only for legacy `.msh` callers.  JSON callers avoid
+        # initializing Gmsh's OpenMP runtime alongside the sparse solver.
+        @eval import GridapGmsh
+        GridapGmsh.GmshDiscreteModel(mesh_path)
+    end
     omega = 2pi * config.frequency_hz
     rho = material.density_kg_m3
     reference = ReferenceFE(lagrangian, VectorValue{2, Float64}, config.element_order)
