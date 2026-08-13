@@ -21,6 +21,8 @@ using .NDTBenchmark
     @test_throws ArgumentError topology_result_directory("Metal GRIN")
 end
 
+include(joinpath(@__DIR__, "topology_fresnel_rings.jl"))
+
 include(joinpath(@__DIR__, "..", "src", "code", "metamaterial", "profiles.jl"))
 using .MetamaterialProfiles
 
