@@ -23,6 +23,9 @@ Do not promote the topology to `continue` until a measured Al--Cu coupon or
 joint supplies a complex loss model. A one-decibel numerical advantage is
 small enough for unmodelled insert or bond loss to reverse it.
 
+Validated implementation/results commit: `a7f0b68` (followed only by the
+compact CSV/report-record commit).
+
 ## What was actually solved
 
 This is a full vector-elastic 2D plane-strain transient, not the scalar defect
