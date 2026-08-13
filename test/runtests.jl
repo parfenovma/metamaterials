@@ -2,6 +2,25 @@ using Test
 using Gridap: VectorValue
 using LinearAlgebra: ⋅
 
+include(joinpath(@__DIR__, "..", "src", "code", "metamaterial", "ndt_benchmark.jl"))
+using .NDTBenchmark
+
+@testset "shared NDT topology benchmark" begin
+    config = NDTStandConfig()
+    @test validate(config) === config
+    @test pressure_wavelength_mm(config) ≈ 25.298 rtol=1.0e-4
+    @test shear_wavelength_mm(config) ≈ 12.743 rtol=1.0e-4
+    @test burst_duration_s(config) ≈ 5 / 242.0e3
+    @test round_trip_time_s(60.0, config) ≈ 2 * 0.060 / config.pressure_wave_speed_m_s
+    @test nominal_dead_zone_depth_mm(config) > config.nominal_focus_depth_mm
+    @test Symbol.(getproperty.(required_defects(config), :id)) == [:none, :void_r2_focus]
+    @test length(all_defects(config)) == 10
+    @test :echo_mf_gain_bare in metric_columns()
+    @test topology_result_directory("metal_grin") ==
+          joinpath("results", "topology_benchmark", "metal_grin")
+    @test_throws ArgumentError topology_result_directory("Metal GRIN")
+end
+
 include(joinpath(@__DIR__, "..", "src", "code", "metamaterial", "profiles.jl"))
 using .MetamaterialProfiles
 
