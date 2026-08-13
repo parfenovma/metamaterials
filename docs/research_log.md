@@ -4257,3 +4257,46 @@ throughput primitive. The closed mechanism is repeated passive power
 distribution, which converts useful longitudinal power into propagating
 flexural modes. Permanent meshes, modal fields, tables and the final figure
 are in `results/aluminium_horn_ttd_p6_242khz/passive_feed/`.
+
+## 67. Stage-closure audit and source-matched continuation
+
+The final claims were audited before merging the research branch. Two
+corrections are necessary.
+
+First, the reported `G_peak=2.12606` is the equal-energy system gain of the
+weighted lens relative to the original abrupt straight reference. At the
+carrier the same drive gives `2.05032` relative to that reference, but
+`1.92755` relative to the straight matched-diffuser control. The corresponding
+unweighted carrier gains are `1.87021` and `1.75823`. The system result remains
+a valid pass under its frozen reference convention, but it is not an
+intrinsic passive-lens gain and the two comparisons must remain separate.
+
+Second, `0.87669` is the efficiency of the selected balanced corporate tree,
+not a global topology bound. Dynamic programming over the same deliberately
+optimistic node-loss surrogate gives:
+
+```text
+topology                         useful efficiency   pulse power-only ceiling
+balanced routed candidate       0.8766895           1.99067
+best contiguous binary tree     0.8905605           2.00635
+best unrestricted binary tree   0.8915995           2.00752
+```
+
+The last two values do not establish feasibility. They reuse the measured
+`T_fund=0.96860` of one unequal ratio for every unequal node, assume ideal
+phase compensation, omit broadband junction interactions, and in the
+unrestricted case may require impractical crossings. Their sub-percent margin
+does establish that the previous global no-go wording was too strong. The
+tested balanced/Y/manifold/MMI implementations remain stopped; the passive
+feed class is unresolved.
+
+The next conceptual patch moves amplitude synthesis into the source instead
+of another mechanical feed sweep. A virtual source at the target is
+back-propagated by reciprocity through the frozen diffuser--TTD geometry. Its
+field at the source plane defines an unconstrained matched eigenchannel and a
+second, realizable projection onto one common waveform with a real
+nonnegative spatial coupling profile. A later coupled model may realize that
+profile through local `1-3` piezocomposite fill fraction, effective `e_33(y)`,
+poling strength, or common-electrode active area. The piezo layer controls
+amplitude; guide length controls delay; the diffuser controls radiation. No
+new geometry sweep is allowed before this constrained time-reversal bound.

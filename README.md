@@ -3,11 +3,19 @@
 Finite-element modelling and inverse design of solid elastic-wave
 metamaterials and focusing meta-lenses.
 
-The current design direction preserves a direct elastic transmission path and
-uses side-mounted local resonators to control phase, transmission and delay.
-Reference-calibrated `H(geometry, frequency)` remains a screening observable;
-power-normalized P/S port scattering, modal identification and inter-element
-coupling are now required before a cell is accepted for lens optimization.
+The current design is a flat-ended all-aluminium true-time-delay lens built
+from smooth `input collector -> delay guide -> output diffuser` channels.
+The isolated channel preserves `99.65%` of the equal-path envelope peak. The
+passive unweighted 15-channel aperture reaches `G=1.870` relative to the
+original abrupt reference; a segmented nonnegative source and a 30-cycle Hann
+pulse reach the verified system result `G_peak=2.126`, `B_t=1.141`, and pulse
+correlation `0.980`.
+
+The next physics question is source--topology matching, not another geometric
+sweep. The planned concept uses one electrical waveform and a spatially
+apodized piezoelectric layer to excite the measured time-reversal eigenchannel
+of the passive TTD geometry. Independent electronic phase channels are outside
+the present scope.
 
 The current research roadmap and physical conventions are documented in:
 
@@ -205,16 +213,19 @@ apodizers fail their complex physical Jacobian gates. With a segmented
 nonnegative drive and a 30-cycle Hann pulse, the final five-frequency full-FEM
 gate reaches `G_peak=2.126`, `B_t=1.141`, `rho=0.980` and postcursor `0.050`;
 the local band contains `99.9485%` of pulse energy. The result is explicitly a
-lens-plus-drive system, not a purely passive apodized lens.
+lens-plus-drive system referenced to the original abrupt control, not a purely
+passive apodized lens. At the carrier its matched-diffuser gain is `1.9276`.
 
-The subsequent one-input passive-feed branch is also closed with absolute
-multimode ports. A straight 7 mm control gives `T_fund=1.00009`; the best
-calibrated unequal Y gives the requested ratio `0.41045` and
-`T_fund=0.96860`, while a required 50/50 Y retains only `0.94205` in the
-useful longitudinal modes. Even an optimistic full corporate tree has useful
-efficiency `0.87669 < 0.88493`, a power-only pulse ceiling `1.99067`, and a
-routed carrier gain `1.80498`. Results and the final physical-aperture plot are
-in [`results/aluminium_horn_ttd_p6_242khz/passive_feed/`](results/aluminium_horn_ttd_p6_242khz/passive_feed/).
+The one-input passive-feed branch uses absolute multimode ports. A straight
+7 mm control gives `T_fund=1.00009`; the calibrated unequal Y gives the
+requested ratio `0.41045` and `T_fund=0.96860`, while the 50/50 Y retains
+`0.94205` in the useful longitudinal modes. The routed balanced tree fails
+with efficiency `0.87669`, power-only pulse ceiling `1.99067`, and carrier
+gain `1.80498`. This is not a global no-go: topology-optimal but unbuilt
+surrogates give only a marginal `2.006--2.008` power-only ceiling. The tested
+feed implementations are stopped; the class remains physically unresolved.
+Details are in
+[`results/aluminium_horn_ttd_p6_242khz/`](results/aluminium_horn_ttd_p6_242khz/README.md).
 
 The horn-fed point-radiator branch implements research-plan B1 with a
 deterministic `3.2 -> 1.6 mm` log-cosine collector, straight equal-path

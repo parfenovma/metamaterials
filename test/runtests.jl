@@ -98,6 +98,12 @@ include(joinpath(
 ))
 import .PassiveFeedManifoldMesher
 
+include(joinpath(
+    @__DIR__, "..", "src", "code", "metamaterial",
+    "design_aluminium_horn_ttd_passive_feed.jl",
+))
+import .DesignAluminiumHornTTDPassiveFeed
+
 include(joinpath(@__DIR__, "..", "src", "code", "metamaterial", "run_pilot_sweep.jl"))
 include(joinpath(
     @__DIR__,
@@ -454,6 +460,37 @@ end
     @test PassiveFeedManifoldMesher.output_center_y_mm(manifold, 1) ≈ -57.4
     @test PassiveFeedManifoldMesher.output_center_y_mm(manifold, 8) ≈ 0.0 atol=1e-12
     @test PassiveFeedManifoldMesher.output_center_y_mm(manifold, 15) ≈ 57.4
+end
+
+@testset "passive feed topology ceilings" begin
+    weights = [
+        0.11593941601987037, 0.4500315894067127, 0.3990175013586375,
+        0.7163447381726632, 0.7008448451782485, 0.7281942059110046,
+        0.8212932885576412, 1.0, 0.8212932885576412,
+        0.7281942059110046, 0.7008448451782485, 0.7163447381726632,
+        0.3990175013586375, 0.4500315894067127, 0.11593941601987037,
+    ]
+    eta_equal = 0.9420469907840849
+    eta_other = 0.9686039905811457
+    _, unrestricted_nodes, unrestricted =
+        DesignAluminiumHornTTDPassiveFeed.efficiency_optimal_tree(
+            abs2.(weights), eta_equal, eta_other,
+        )
+    _, contiguous_nodes, contiguous =
+        DesignAluminiumHornTTDPassiveFeed.efficiency_optimal_tree(
+            abs2.(weights), eta_equal, eta_other; contiguous=true,
+        )
+
+    @test length(unrestricted_nodes) == length(weights) - 1
+    @test length(contiguous_nodes) == length(weights) - 1
+    @test unrestricted ≈ 0.8915994814751932 atol=1e-12
+    @test contiguous ≈ 0.8905605108729353 atol=1e-12
+    @test unrestricted >= contiguous
+    @test_throws ArgumentError begin
+        DesignAluminiumHornTTDPassiveFeed.efficiency_optimal_tree(
+            [1.0, 0.0], eta_equal, eta_other,
+        )
+    end
 end
 
 @testset "monotonic horn lens geometry" begin

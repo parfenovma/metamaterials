@@ -52,17 +52,27 @@ profile peak            y = 0 mm
 
 Thus the primary amplitude target is achieved for the combined
 double-horn TTD lens, segmented real nonnegative drive, and 30-cycle pulse.
-The passive unweighted geometry remains at `1.870`.
+The passive unweighted geometry remains at `1.870` relative to the original
+abrupt straight reference. At the carrier, the corresponding matched-diffuser
+gains are `1.7582` for the unweighted lens and `1.9276` for the selected
+segmented drive. These reference conventions must be reported separately.
 
 The follow-up `passive_feed/` package tests whether the same pulse30 aperture
 can be driven from one transducer. Absolute three-mode DtN ports replace the
 invalid bulk-P power proxy. The best calibrated unequal Y has amplitude ratio
 `0.41045` (target `0.41092`) and useful-mode transmission `0.96860`; the
-required 50/50 Y retains `0.94205`. An optimistic full-tree cascade therefore
-retains at most `0.87669` useful power, below the `0.88493` requirement. Its
-power-only pulse ceiling is `1.99067` and routed carrier response-matrix gain
-is `1.80498`. The passive one-input branch is a carrier-gate STOP; no
-full-tree broadband solve was run.
+required 50/50 Y retains `0.94205`. The routed balanced-tree cascade retains
+`0.87669` useful power, below the `0.88493` requirement. Its power-only pulse
+ceiling is `1.99067` and routed carrier response-matrix gain is `1.80498`.
+
+A subsequent topology audit shows that this is not a global passive-feed
+upper bound. Under the same optimistic per-node efficiencies and ideal phase
+compensation, the best contiguous binary-tree surrogate retains `0.89056`
+and has a power-only pulse ceiling `2.00635`; the unrestricted surrogate gives
+`0.89160` and `2.00752`. Neither tree is a physical PASS: the required split
+ratios, routing, phase and broadband response have not been validated, and
+the amplitude margin is below `0.4%`. The tested balanced/Y/manifold/MMI
+implementations are stopped, while the passive-feed class remains unresolved.
 
 Key figures:
 

@@ -97,6 +97,131 @@ function balanced_tree(power)
     build(full_mask), internal
 end
 
+"""
+    efficiency_optimal_tree(power, eta_equal, eta_other; contiguous=false)
+
+Find the binary tree that maximizes the retained useful power in the
+optimistic cascade model. Every node divides power according to the target
+leaf powers. A 50/50 node retains `eta_equal`; every other node retains
+`eta_other`.
+
+With `contiguous=true`, every subtree is restricted to a contiguous interval
+of aperture channels. The unrestricted result is only a mathematical ceiling:
+it may require branch crossings and neither result proves that all requested
+split ratios share the two measured efficiencies.
+"""
+function efficiency_optimal_tree(power, eta_equal, eta_other; contiguous=false)
+    powers = Float64.(power)
+    !isempty(powers) || throw(ArgumentError("at least one leaf is required"))
+    all(>(0), powers) || throw(ArgumentError("leaf powers must be positive"))
+    0 <= eta_equal <= 1 || throw(ArgumentError("eta_equal must be in [0, 1]"))
+    0 <= eta_other <= 1 || throw(ArgumentError("eta_other must be in [0, 1]"))
+    count = length(powers)
+    count <= 20 || throw(ArgumentError(
+        "unrestricted subset search is limited to 20 leaves",
+    ))
+
+    split_efficiency(fraction) = isapprox(fraction, 0.5; atol=1e-10) ?
+                                 Float64(eta_equal) : Float64(eta_other)
+    next_id = Ref(count + 1)
+    internal = FeedNode[]
+
+    if contiguous
+        interval_power(first_index, last_index) =
+            sum(@view powers[first_index:last_index])
+        memo = Dict{Tuple{Int, Int}, Tuple{Float64, Int}}()
+        function solve_interval(first_index, last_index)
+            first_index == last_index && return (1.0, 0)
+            key = (first_index, last_index)
+            haskey(memo, key) && return memo[key]
+            total = interval_power(first_index, last_index)
+            best_score = -Inf
+            best_split = 0
+            for split in first_index:(last_index - 1)
+                left_power = interval_power(first_index, split)
+                fraction = left_power / total
+                score = split_efficiency(fraction) * (
+                    fraction * first(solve_interval(first_index, split)) +
+                    (1 - fraction) *
+                    first(solve_interval(split + 1, last_index))
+                )
+                if score > best_score + 1e-14
+                    best_score = score
+                    best_split = split
+                end
+            end
+            memo[key] = (best_score, best_split)
+        end
+        function build_interval(first_index, last_index)
+            first_index == last_index &&
+                return FeedNode(first_index, powers[first_index], first_index)
+            split = last(solve_interval(first_index, last_index))
+            left = build_interval(first_index, split)
+            right = build_interval(split + 1, last_index)
+            parent = FeedNode(
+                next_id[], left.power + right.power,
+                collect(first_index:last_index), left, right,
+            )
+            next_id[] += 1
+            push!(internal, parent)
+            parent
+        end
+        score = first(solve_interval(1, count))
+        return build_interval(1, count), internal, score
+    end
+
+    full_mask = (1 << count) - 1
+    mask_power = zeros(Float64, full_mask + 1)
+    for mask in 1:full_mask
+        bit = trailing_zeros(mask)
+        mask_power[mask + 1] =
+            mask_power[(mask & (mask - 1)) + 1] + powers[bit + 1]
+    end
+    memo = Dict{Int, Tuple{Float64, Int}}()
+    function solve_subset(mask)
+        haskey(memo, mask) && return memo[mask]
+        count_ones(mask) == 1 && return (memo[mask] = (1.0, 0))
+        first_bit = 1 << trailing_zeros(mask)
+        best_score = -Inf
+        best_split = 0
+        submask = (mask - 1) & mask
+        while submask > 0
+            if !iszero(submask & first_bit)
+                other = xor(mask, submask)
+                fraction = mask_power[submask + 1] / mask_power[mask + 1]
+                score = split_efficiency(fraction) * (
+                    fraction * first(solve_subset(submask)) +
+                    (1 - fraction) * first(solve_subset(other))
+                )
+                if score > best_score + 1e-14
+                    best_score = score
+                    best_split = submask
+                end
+            end
+            submask = (submask - 1) & mask
+        end
+        memo[mask] = (best_score, best_split)
+    end
+    function build_subset(mask)
+        if count_ones(mask) == 1
+            leaf = trailing_zeros(mask) + 1
+            return FeedNode(leaf, powers[leaf], leaf)
+        end
+        split = last(solve_subset(mask))
+        left = build_subset(split)
+        right = build_subset(xor(mask, split))
+        parent = FeedNode(
+            next_id[], left.power + right.power,
+            sort(vcat(left.leaves, right.leaves)), left, right,
+        )
+        next_id[] += 1
+        push!(internal, parent)
+        parent
+    end
+    score = first(solve_subset(full_mask))
+    build_subset(full_mask), internal, score
+end
+
 function collect_depths!(depths, node, depth=0)
     if isleaf(node)
         depths[only(node.leaves)] = depth

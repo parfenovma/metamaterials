@@ -23,10 +23,8 @@ modal_path(root_name) = joinpath(
     SPLITTER_ROOT, root_name, "passive_feed_splitter_modal_f242000hz.jld2",
 )
 
-function optimistic_tree(eta_equal, eta_other)
-    target = DesignAluminiumHornTTDPassiveFeed.selected_full_weights()
-    root, _ = DesignAluminiumHornTTDPassiveFeed.balanced_tree(abs2.(target))
-    leaf_power = zeros(Float64, length(target))
+function optimistic_leaf_power(root, eta_equal, eta_other, leaf_count)
+    leaf_power = zeros(Float64, leaf_count)
     function distribute(node, input_power)
         if DesignAluminiumHornTTDPassiveFeed.isleaf(node)
             leaf_power[only(node.leaves)] = input_power
@@ -40,7 +38,13 @@ function optimistic_tree(eta_equal, eta_other)
         distribute(node.right, input_power * efficiency * (1 - left_fraction))
     end
     distribute(root, 1.0)
-    target, leaf_power
+    leaf_power
+end
+
+function balanced_optimistic_tree(eta_equal, eta_other)
+    target = DesignAluminiumHornTTDPassiveFeed.selected_full_weights()
+    root, _ = DesignAluminiumHornTTDPassiveFeed.balanced_tree(abs2.(target))
+    target, optimistic_leaf_power(root, eta_equal, eta_other, length(target))
 end
 
 function routed_carrier_gain(leaf_power)
@@ -89,10 +93,35 @@ function run()
     mmi = best_mmi_row()
     eta_equal = Float64(equal["useful_fundamental_power_transmission"])
     eta_other = Float64(unequal["useful_fundamental_power_transmission"])
-    target, leaf_power = optimistic_tree(eta_equal, eta_other)
+    target, leaf_power = balanced_optimistic_tree(eta_equal, eta_other)
     tree_efficiency = sum(leaf_power)
+    target_power = abs2.(target)
+    unrestricted_root, _, unrestricted_tree_efficiency =
+        DesignAluminiumHornTTDPassiveFeed.efficiency_optimal_tree(
+            target_power, eta_equal, eta_other,
+        )
+    contiguous_root, _, contiguous_tree_efficiency =
+        DesignAluminiumHornTTDPassiveFeed.efficiency_optimal_tree(
+            target_power, eta_equal, eta_other; contiguous=true,
+        )
+    unrestricted_leaf_power = optimistic_leaf_power(
+        unrestricted_root, eta_equal, eta_other, length(target),
+    )
+    contiguous_leaf_power = optimistic_leaf_power(
+        contiguous_root, eta_equal, eta_other, length(target),
+    )
+    @assert isapprox(
+        sum(unrestricted_leaf_power), unrestricted_tree_efficiency; atol=1e-12,
+    )
+    @assert isapprox(
+        sum(contiguous_leaf_power), contiguous_tree_efficiency; atol=1e-12,
+    )
     required_efficiency = (2 / VERIFIED_PULSE_GAIN)^2
     pulse_power_only_upper = VERIFIED_PULSE_GAIN * sqrt(tree_efficiency)
+    unrestricted_pulse_ceiling =
+        VERIFIED_PULSE_GAIN * sqrt(unrestricted_tree_efficiency)
+    contiguous_pulse_ceiling =
+        VERIFIED_PULSE_GAIN * sqrt(contiguous_tree_efficiency)
     carrier_power_only_upper = VERIFIED_CARRIER_UPPER_GAIN * sqrt(tree_efficiency)
     routed_gain, routed_weights = routed_carrier_gain(leaf_power)
     passed = pulse_power_only_upper >= 2.0
@@ -132,16 +161,45 @@ function run()
             mmi.coherence, mmi.coherence, false,
         ), ','))
         println(io, join((
-            "corporate_tree_optimistic", NaN, NaN, tree_efficiency, NaN, 0.0,
+            "corporate_tree_balanced", NaN, NaN, tree_efficiency, NaN, 0.0,
             NaN, routed_gain, passed,
+        ), ','))
+        println(io, join((
+            "corporate_tree_efficiency_optimal_contiguous", NaN, NaN,
+            contiguous_tree_efficiency, NaN, 0.0, NaN,
+            contiguous_pulse_ceiling, contiguous_pulse_ceiling >= 2,
+        ), ','))
+        println(io, join((
+            "corporate_tree_efficiency_optimal_unrestricted", NaN, NaN,
+            unrestricted_tree_efficiency, NaN, 0.0, NaN,
+            unrestricted_pulse_ceiling, unrestricted_pulse_ceiling >= 2,
         ), ','))
     end
 
     open(joinpath(OUTPUT_ROOT, "passive_feed_tree_upper_bound.csv"), "w") do io
-        println(io, "equal_splitter_useful_efficiency,best_unequal_splitter_useful_efficiency,tree_useful_efficiency_upper_bound,minimum_tree_efficiency_for_pulse_gain_2,pulse_power_only_gain_upper_bound,carrier_power_only_gain_upper_bound,routed_profile_carrier_gain,passed")
+        println(io, "equal_splitter_useful_efficiency,best_unequal_splitter_useful_efficiency,balanced_tree_useful_efficiency,minimum_tree_efficiency_for_pulse_gain_2,balanced_pulse_power_only_ceiling,balanced_carrier_power_only_ceiling,routed_profile_carrier_gain,passed")
         println(io, join((
             eta_equal, eta_other, tree_efficiency, required_efficiency,
             pulse_power_only_upper, carrier_power_only_upper, routed_gain, passed,
+        ), ','))
+    end
+
+    open(joinpath(OUTPUT_ROOT, "passive_feed_tree_surrogates.csv"), "w") do io
+        println(io, "topology,useful_efficiency,pulse_power_only_ceiling,passes_power_only_gate,physical_status")
+        println(io, join((
+            "balanced_measured-node_cascade", tree_efficiency,
+            pulse_power_only_upper, pulse_power_only_upper >= 2,
+            "routed_carrier_checked",
+        ), ','))
+        println(io, join((
+            "efficiency_optimal_contiguous", contiguous_tree_efficiency,
+            contiguous_pulse_ceiling, contiguous_pulse_ceiling >= 2,
+            "unbuilt_surrogate",
+        ), ','))
+        println(io, join((
+            "efficiency_optimal_unrestricted", unrestricted_tree_efficiency,
+            unrestricted_pulse_ceiling, unrestricted_pulse_ceiling >= 2,
+            "unbuilt_surrogate",
         ), ','))
     end
 
@@ -169,12 +227,19 @@ function run()
         profile_plot, centers_mm, delivered_relative;
         marker=:diamond, linewidth=2.5, label="optimistic physical tree",
     )
-    gain_values = [1.870, pulse_power_only_upper, VERIFIED_PULSE_GAIN]
+    gain_values = [
+        1.870, pulse_power_only_upper, contiguous_pulse_ceiling,
+        VERIFIED_PULSE_GAIN,
+    ]
     gain_plot = bar(
-        ["unweighted\nlens", "passive tree\nupper", "segmented\ndrive"],
+        [
+            "unweighted\nlens", "balanced tree\nceiling",
+            "best contiguous\nsurrogate", "segmented\ndrive",
+        ],
         gain_values;
         ylabel="G_peak", label="", title="Equal-input-power focal gain",
-        ylim=(0.0, 2.25), color=[:steelblue, :darkorange, :seagreen],
+        ylim=(0.0, 2.25),
+        color=[:steelblue, :darkorange, :goldenrod, :seagreen],
     )
     hline!(gain_plot, [2.0]; color=:red, linestyle=:dash, linewidth=2, label="target 2x")
     for (index, value) in enumerate(gain_values)
@@ -185,9 +250,11 @@ function run()
 
     verdict_path = joinpath(OUTPUT_ROOT, "passive_feed_verdict.txt")
     open(verdict_path, "w") do io
-        println(io, passed ?
-            "PASS: passive one-input feed retains enough useful power for G_peak >= 2." :
-            "STOP: every tested passive one-input feed is below the G_peak = 2 gate.")
+        println(io,
+            "STOP: the physically routed balanced feed is below the G_peak = 2 gate; " *
+            "the passive-feed class remains open because unbuilt tree surrogates " *
+            "retain a sub-percent power-only margin.",
+        )
         println(io, "straight_modal_Tfund=$(straight["useful_fundamental_power_transmission"])")
         println(io, "equal_splitter_Tfund=$eta_equal")
         println(io, "unequal_splitter_Tfund=$eta_other")
@@ -196,12 +263,16 @@ function run()
         println(io, "global_manifold_Tfund=$(manifold["useful_power_transmission"])")
         println(io, "global_manifold_coherence=$(manifold["target_complex_coherence"])")
         println(io, "mmi_reduced_best_coherence=$(mmi.coherence)")
-        println(io, "tree_useful_efficiency_upper_bound=$tree_efficiency")
+        println(io, "balanced_tree_useful_efficiency=$tree_efficiency")
         println(io, "tree_required_efficiency=$required_efficiency")
         println(io, "pulse_power_only_gain_upper_bound=$pulse_power_only_upper")
+        println(io, "contiguous_tree_efficiency_surrogate=$contiguous_tree_efficiency")
+        println(io, "contiguous_pulse_power_only_ceiling=$contiguous_pulse_ceiling")
+        println(io, "unrestricted_tree_efficiency_surrogate=$unrestricted_tree_efficiency")
+        println(io, "unrestricted_pulse_power_only_ceiling=$unrestricted_pulse_ceiling")
         println(io, "carrier_power_only_gain_upper_bound=$carrier_power_only_upper")
         println(io, "routed_profile_carrier_gain=$routed_gain")
-        println(io, "broadband_full_tree_solve=SKIPPED_BY_CARRIER_GATE")
+        println(io, "broadband_full_tree_solve=SKIPPED_PENDING_PHYSICAL_TREE")
     end
     JLD2.jldsave(
         joinpath(OUTPUT_ROOT, "passive_feed_verdict.jld2");
@@ -214,12 +285,18 @@ function run()
         tree_efficiency,
         required_efficiency,
         pulse_power_only_upper,
+        contiguous_tree_efficiency,
+        contiguous_pulse_ceiling,
+        unrestricted_tree_efficiency,
+        unrestricted_pulse_ceiling,
         carrier_power_only_upper,
         routed_gain,
         passed,
     )
-    println("[+] passive tree efficiency upper=$tree_efficiency, required=$required_efficiency")
-    println("[+] pulse power-only upper=$pulse_power_only_upper")
+    println("[+] balanced tree efficiency=$tree_efficiency, required=$required_efficiency")
+    println("[+] balanced pulse power-only ceiling=$pulse_power_only_upper")
+    println("[+] contiguous tree surrogate=$contiguous_pulse_ceiling")
+    println("[+] unrestricted tree surrogate=$unrestricted_pulse_ceiling")
     println("[+] routed carrier gain=$routed_gain, passed=$passed")
     println("[+] $verdict_path")
 end
