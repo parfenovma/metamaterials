@@ -18,7 +18,7 @@ Continue only after a real graded Al--Cu coupon supplies measured complex
 confirms positive echo-to-ringing margin. Do not spend a full G4 sweep before
 those two gates.
 
-Validated code commit: `PENDING_FIRST_LOCAL_COMMIT`.
+Validated code commit: `6c0f7e5`.
 
 ## G0 -- concrete geometry and manufacture
 
