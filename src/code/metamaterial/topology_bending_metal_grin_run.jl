@@ -371,9 +371,10 @@ end
 
 function write_benchmark(summary)
     byv = Dict(r.variant => r for r in summary)
-    passing = filter(r -> r.variant != :solid && r.pass_local, summary)
-    selected = isempty(passing) ? first(filter(r -> r.variant != :solid, summary)) :
-               last(sort(passing; by=r -> r.delay_at_242_us))
+    # Dense-C is the highest-throughput edge of the bending family and is the
+    # only state carried into finite-chain/Bloch and multimode validation.
+    selected = haskey(byv, :dense_c) ? byv[:dense_c] :
+               first(filter(r -> r.variant != :solid, summary))
     straight = byv[:solid]
     nan = NaN
     row(topology, reference, state, verdict) = (
@@ -394,9 +395,9 @@ function write_benchmark(summary)
         verdict,
     )
     rows = [
-        row("bending_metal_grin", "bare", nothing, "not_calculated_g1_gate"),
+        row("bending_metal_grin", "bare", nothing, "not_calculated_g1_stop"),
         row("bending_metal_grin", "straight_footprint", straight, "local_reference_only"),
-        row("bending_metal_grin_$(selected.variant)", "straight_footprint", selected, "g1_pending_library_gate"),
+        row("bending_metal_grin_$(selected.variant)", "straight_footprint", selected, "stop"),
     ]
     propertynames(first(rows)) == metric_columns() || error("shared metric columns changed")
     write_csv(joinpath(OUTPUT_ROOT, "benchmark_metrics.csv"), rows)
