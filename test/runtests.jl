@@ -681,6 +681,8 @@ using .OperatorO3Statistics
     @test crossing_amplitude([1.0, 2.0], [0.1, 0.2], 0.9) == Inf
 end
 
+include(joinpath(@__DIR__, "topology_fresnel_rings.jl"))
+
 include(joinpath(@__DIR__, "..", "src", "code", "metamaterial", "profiles.jl"))
 using .MetamaterialProfiles
 
