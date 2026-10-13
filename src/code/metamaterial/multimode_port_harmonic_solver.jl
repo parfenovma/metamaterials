@@ -18,7 +18,7 @@ using ..SinusoidalMaterialLens
 using ..ElasticPortModes
 using ..ElasticModalProjection
 
-export MultimodePortConfig, solve_multimode_port_harmonic
+export MultimodePortConfig, solve_multimode_port_harmonic, prepare_multimode_model
 
 Base.@kwdef struct MultimodePortConfig
     frequency_hz::Float64 = 242.0e3
@@ -26,6 +26,8 @@ Base.@kwdef struct MultimodePortConfig
     quadrature_degree::Int = 4
     port_element_count::Int = 120
     evanescent_modes_per_port::Int = 8
+    # Keep straight port extensions lossless when measuring a dissipative cell.
+    damping_domain_tag::Union{Nothing, String} = nothing
 end
 
 function elastic_stress(material::ElasticMaterial, strain)
@@ -98,14 +100,17 @@ function port_operator_data(
     material,
     config,
     direction,
-    outward_sign,
+    outward_sign;
+    supplied_modes=nothing,
 )
     boundary = BoundaryTriangulation(model; tags=[String(tag)])
     measure = Measure(boundary, config.quadrature_degree)
     width_m, center_y = boundary_width_and_center(boundary)
-    modes = port_modes(
+    modes = isnothing(supplied_modes) ? port_modes(
         material, config.frequency_hz, width_m, config.port_element_count,
-    )
+    ) : supplied_modes
+    all(m -> isapprox(last(m.y_m)-first(m.y_m),width_m;rtol=1e-8),modes) ||
+        error("supplied modes do not match port width")
     basis_modes = outgoing_basis(
         modes, direction, config.evanescent_modes_per_port,
     )
@@ -210,17 +215,40 @@ function propagating_amplitudes(state, tag, modes)
     ]
 end
 
+"""Assemble frequency-independent volume matrices once for a frequency sweep."""
+function prepare_multimode_model(mesh_path, material; config=MultimodePortConfig())
+    model=endswith(lowercase(mesh_path),".json") ? DiscreteModelFromFile(mesh_path) : GmshDiscreteModel(mesh_path)
+    reference=ReferenceFE(lagrangian,VectorValue{2,Float64},config.element_order)
+    test_space=TestFESpace(model,reference;conformity=:H1,vector_type=Vector{ComplexF64})
+    trial_space=TrialFESpace(test_space)
+    measure=Measure(Triangulation(model;tags=["Domain"]),config.quadrature_degree)
+    damping_measure=isnothing(config.damping_domain_tag) ? measure :
+        Measure(Triangulation(model;tags=[config.damping_domain_tag]),config.quadrature_degree)
+    stiffness(u,v)=elastic_stress(material,ε(u)) ⊙ ε(v)
+    mass(u,v)=material.density_kg_m3*(u⋅v)
+    K=assemble_matrix((u,v)->∫(stiffness(u,v))measure,trial_space,test_space)
+    M=assemble_matrix((u,v)->∫(mass(u,v))measure,trial_space,test_space)
+    Kd=isnothing(config.damping_domain_tag) ? K : assemble_matrix((u,v)->∫(stiffness(u,v))damping_measure,trial_space,test_space)
+    Md=isnothing(config.damping_domain_tag) ? M : assemble_matrix((u,v)->∫(mass(u,v))damping_measure,trial_space,test_space)
+    (;model,test_space,trial_space,damping_measure,K,M,Kd,Md)
+end
+
 function solve_multimode_port_harmonic(
     mesh_path::AbstractString,
     output_tags::AbstractVector{<:AbstractString},
     material::ElasticMaterial=aluminium_6061();
     config::MultimodePortConfig=MultimodePortConfig(),
+    incident_mode=nothing,
+    prepared=nothing,
+    supplied_modes=nothing,
 )
     isfile(mesh_path) || error("mesh not found: $mesh_path")
     isempty(output_tags) && throw(ArgumentError("at least one output port is required"))
-    model = GmshDiscreteModel(mesh_path)
     omega = 2pi * config.frequency_hz
     rho = material.density_kg_m3
+    if isnothing(prepared)
+    model = endswith(lowercase(mesh_path), ".json") ?
+        DiscreteModelFromFile(mesh_path) : GmshDiscreteModel(mesh_path)
     reference = ReferenceFE(lagrangian, VectorValue{2, Float64}, config.element_order)
     test_space = TestFESpace(
         model, reference; conformity=:H1, vector_type=Vector{ComplexF64},
@@ -228,27 +256,37 @@ function solve_multimode_port_harmonic(
     trial_space = TrialFESpace(test_space)
     domain = Triangulation(model; tags=["Domain"])
     measure = Measure(domain, config.quadrature_degree)
+    damping_measure = isnothing(config.damping_domain_tag) ? measure :
+        Measure(Triangulation(model; tags=[config.damping_domain_tag]), config.quadrature_degree)
     stiffness(u, v) = elastic_stress(material, ε(u)) ⊙ ε(v)
     bilinear(u, v) = ∫(
-        stiffness(u, v) - rho * omega^2 * (u ⋅ v) +
+        stiffness(u, v) - rho * omega^2 * (u ⋅ v)
+    )measure + ∫(
         im * omega * (
             material.rayleigh_alpha_s_inv * rho * (u ⋅ v) +
             material.rayleigh_beta_s * stiffness(u, v)
         )
-    )measure
+    )damping_measure
     matrix = assemble_matrix(bilinear, trial_space, test_space)
+    else
+        model=prepared.model; test_space=prepared.test_space; trial_space=prepared.trial_space
+        damping_measure=prepared.damping_measure
+        matrix=prepared.K-omega^2*prepared.M+
+            im*omega*(material.rayleigh_alpha_s_inv*prepared.Md+material.rayleigh_beta_s*prepared.Kd)
+    end
     source_port = port_operator_data(
-        test_space, model, "Source", material, config, :left, -1.0,
+        test_space, model, "Source", material, config, :left, -1.0; supplied_modes,
     )
     output_ports = [
-        port_operator_data(test_space, model, tag, material, config, :right, 1.0)
+        port_operator_data(test_space, model, tag, material, config, :right, 1.0; supplied_modes)
         for tag in output_tags
     ]
     add_port_operator!(matrix, source_port)
     for port in output_ports
         add_port_operator!(matrix, port)
     end
-    incident_mode = fundamental_quasi_longitudinal(source_port.modes)
+    incident_mode = isnothing(incident_mode) ?
+        fundamental_quasi_longitudinal(source_port.modes) : incident_mode
     load = incident_load_vector(test_space, source_port, incident_mode)
     coefficients = matrix \ load
     displacement = FEFunction(trial_space, coefficients)
@@ -271,6 +309,13 @@ function solve_multimode_port_harmonic(
         sum(abs2(item.left_amplitude) for item in amplitudes)
         for amplitudes in output_amplitudes
     ]
+    conjugated(value) = conj(value)
+    conjugate_displacement = conjugated ∘ displacement
+    conjugate_strain = conjugated ∘ ε(displacement)
+    dissipated_power = 0.5 * omega^2 * real(sum(∫(
+        material.rayleigh_alpha_s_inv * rho * (displacement ⋅ conjugate_displacement) +
+        material.rayleigh_beta_s * (elastic_stress(material, ε(displacement)) ⊙ conjugate_strain)
+    )damping_measure))
     (
         frequency_hz=config.frequency_hz,
         incident_mode,
@@ -278,12 +323,15 @@ function solve_multimode_port_harmonic(
         reflected_power_w_per_m=reflected_power,
         transmitted_power_w_per_m=transmitted_power,
         incoming_output_power_w_per_m=incoming_output_power,
+        internal_dissipated_power_w_per_m=Float64(dissipated_power),
         source_amplitudes,
         output_amplitudes,
         port_basis_sizes=[length(source_port.basis_modes); length.(getproperty.(output_ports, :basis_modes))],
         port_gram_condition_numbers=[source_port.gram_condition_number; getproperty.(output_ports, :gram_condition_number)],
         displacement,
+        stress,
         model,
+        quadrature_degree=config.quadrature_degree,
     )
 end
 

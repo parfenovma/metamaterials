@@ -1,7 +1,56 @@
 # Metamaterials
 
-Finite-element modelling and inverse design of solid elastic-wave
-metamaterials and focusing meta-lenses.
+Finite-element modelling and inverse design of low-channel-count elastic-wave
+measurement operators for ultrasonic NDT. Passive meta-lenses are one
+candidate physical front-end, not the predefined product architecture.
+
+The current primary task is to map the measurement-operator design space
+between a one-channel A-scan and a PAUT oracle before synthesizing any new
+geometry. The architecture contract, operator metrics, 2D-to-3D lift rules and
+pre-geometry stage gates are documented in
+[`docs/measurement_operator_design_space.md`](docs/measurement_operator_design_space.md).
+The frozen dimensionless `O0` task is in
+[`docs/operator_task_contract.md`](docs/operator_task_contract.md); the first
+geometry-free `O1/O2` result is in
+[`results/operator_space/dimensionless_elastic_born_v0/`](results/operator_space/dimensionless_elastic_born_v0/README.md).
+The causal/perturbation gate originally selected a
+`four electronic channels x two static passive states` class for `O3`; the
+frozen paired pulse-echo and clutter protocol is in
+[`docs/operator_o3_benchmark_contract.md`](docs/operator_o3_benchmark_contract.md).
+The first reduced O3 campaign passes the static entrant's intrinsic detection
+and false-alarm gates but fails equal-time mechanical non-inferiority; the
+auditable result is in
+[`results/operator_space/paired_clutter_born_v0/`](results/operator_space/paired_clutter_born_v0/README.md).
+Both sides of that fork have now been mapped on common fresh data: the static
+`K=1..4, Q=1..4` search and the `P=1..17` motion-layout search are synthesized
+in
+[`results/operator_space/combined_frontier_v0/`](results/operator_space/combined_frontier_v0/README.md).
+Neither branch universally dominates once channels, events, switches, moves
+and calibration are kept as separate resources.
+The four frozen frontier representatives have now passed the first paired
+full-elastic carrier transfer gate on a common conforming mesh; the contract
+and convergence audit are in
+[`docs/operator_o3_fullwave_contract.md`](docs/operator_o3_fullwave_contract.md)
+and
+[`results/operator_space/fullwave_carrier_convergence_v0/`](results/operator_space/fullwave_carrier_convergence_v0/README.md).
+This F0 result validates the physical operator transfer, not transient POD;
+the subsequent direct transient F1a passes its physics gates. The frozen
+six-class stochastic F1b pilot advanced no candidate because its task prior
+was unusually favourable to coherent A-scan. Results are in
+[`results/operator_space/fullwave_transient_v0/`](results/operator_space/fullwave_transient_v0/README.md)
+and
+[`results/operator_space/fullwave_f1b_pilot_v0/`](results/operator_space/fullwave_f1b_pilot_v0/README.md).
+
+That blocker is now closed. The expanded structural-clutter F1d campaign uses
+five development/train, two fresh validation and two fresh final-test
+full-wave contexts. It selects a smooth `K3,Q1` operator: three fixed DCT
+aperture modes, three electronic channels, one passive state and three events.
+At the frozen reference it achieves `Pfa_upper=0.089%`, `Pd=0.982`, exact
+`Pdl=0.976`, minimum-class `Pd=0.957` and `91.0%` A-scan-to-FMC gap closure.
+The report, final transfer target and geometry handoff are in
+[`results/operator_space/fullwave_f1d_expanded_v0/`](results/operator_space/fullwave_f1d_expanded_v0/README.md),
+[`results/operator_space/o4_k3q1_transfer_target_v0/`](results/operator_space/o4_k3q1_transfer_target_v0/README.md)
+and [`docs/operator_o5_geometry_handoff.md`](docs/operator_o5_geometry_handoff.md).
 
 The current design is a flat-ended all-aluminium true-time-delay lens built
 from smooth `input collector -> delay guide -> output diffuser` channels.
@@ -11,15 +60,21 @@ original abrupt reference; a segmented nonnegative source and a 30-cycle Hann
 pulse reach the verified system result `G_peak=2.126`, `B_t=1.141`, and pulse
 correlation `0.980`.
 
-The next physics question is source--topology matching, not another geometric
-sweep. The planned concept uses one electrical waveform and a spatially
-apodized piezoelectric layer to excite the measured time-reversal eigenchannel
-of the passive TTD geometry. Independent electronic phase channels are outside
-the present scope.
+The existing TTD lens is retained as a `fixed_focus / K=1 / reciprocal`
+feasibility point. Source--topology matching remains relevant to that point,
+but no further geometry sweep is justified until the operator campaign has
+compared fixed focus with broadband, time, modal, few-port and mechanically
+indexed coding under common NDT metrics.
 
 The current research roadmap and physical conventions are documented in:
 
 - [`docs/research_plan.md`](docs/research_plan.md)
+- [`docs/measurement_operator_design_space.md`](docs/measurement_operator_design_space.md)
+- [`docs/operator_task_contract.md`](docs/operator_task_contract.md)
+- [`docs/operator_o3_benchmark_contract.md`](docs/operator_o3_benchmark_contract.md)
+- [`docs/operator_o3_fullwave_contract.md`](docs/operator_o3_fullwave_contract.md)
+- [`docs/operator_o3_f1_contract.md`](docs/operator_o3_f1_contract.md)
+- [`docs/defect_topology_benchmark.md`](docs/defect_topology_benchmark.md)
 - [`docs/research_log.md`](docs/research_log.md) — archived experiment history
 - [`docs/s_parameter_conventions.md`](docs/s_parameter_conventions.md)
 

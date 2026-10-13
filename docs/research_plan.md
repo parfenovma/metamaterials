@@ -1,13 +1,1155 @@
-# План исследования упругой импульсной TTD-линзы
+# План исследования малоканального упругого дефектоскопа
 
-> Обновлено: 13 августа 2026 года. Это управляющий документ: в нём находятся
-> только текущая цель, доказанные ограничения, критерии и следующие решения.
-> Полная хронология расчётов и количественные результаты сохранены в
-> [`research_log.md`](research_log.md).
+> Обновлено 15 августа 2026 года. Это основной управляющий документ проекта.
+> Полное пространство архитектур и определения операторных метрик находятся в
+> [`measurement_operator_design_space.md`](measurement_operator_design_space.md),
+> безразмерный контракт первого pilot — в
+> [`operator_task_contract.md`](operator_task_contract.md), история физических
+> расчётов — в [`research_log.md`](research_log.md), текущий paired benchmark —
+> в [`operator_o3_benchmark_contract.md`](operator_o3_benchmark_contract.md).
+> Новые геометрии не синтезируются до gates `O0--O3` и явного handoff
+> `O4 -> O5`.
 
-## 1. Цель проекта
+# Часть I. Основная амбиция проекта
 
-Разработать плоскую с обоих торцов упругую линзовую прослойку, которая из
+## 1. Продуктовая и физическая цель
+
+Разработать ультразвуковой дефектоскоп, который в ограниченной области
+контроля сопоставим с PAUT по обнаружению и локализации заданного класса
+дефектов, но использует существенно меньше электронных каналов и более
+дешёвую архитектуру:
+
+```text
+1--4 электронных канала
+    + пассивное или малоканальное упругое кодирование
+    + калиброванный алгоритм решения обратной задачи
+    -> полезная доля качества PAUT внутри ограниченной ROI.
+```
+
+Проект не ставит целью построить ещё одну фазированную решётку. Дорогие
+независимые element-wise phase channels должны быть заменены пространственным,
+временным, частотным, модовым или механическим кодированием. Цена системы
+включает не только ADC/pulser, но также PZT, изготовление, калибровку, контакт,
+время измерения и повторяемость посадки.
+
+Линза, метаматериал, пассивная сеть, несколько symmetry-портов или
+механически перестраиваемая поверхность являются возможными реализациями
+измерительного оператора, но ни одна геометрия не выбирается заранее.
+
+## 2. Центральная операторная постановка
+
+Для дефекта `xi`, архитектуры `D`, возбуждения `u_k` и приёмного функционала
+`r_l` измерение записывается как
+
+```math
+y_{kl}(t;\xi,D)=
+\mathcal R_{D,l}\,\mathcal G(\xi)\,\mathcal T_{D,k}u_k(t)
++b_{D,kl}(t)+n_{kl}(t).
+```
+
+После одинакового feature extraction:
+
+```math
+z=A_Dx+\varepsilon.
+```
+
+Столбец `a_j` матрицы `A_D` — весь измеряемый отклик гипотезы дефекта
+`xi_j`. Проектируется тройка
+
+```math
+(D,\{u_k\},\mathcal A_{decision}),
+```
+
+а не только механическая структура. Норма столбца характеризует
+обнаружимость, сходство столбцов — неоднозначность локализации, singular
+spectrum — число устойчиво наблюдаемых степеней свободы.
+
+Фокус, FWHM и полевая амплитуда являются диагностикой механизма. Они не
+ранжируют дефектоскопы без paired pulse-echo, noise/clutter и общей
+нормировки ресурсов.
+
+## 3. Базовые инварианты
+
+1. Сравнение ведётся одновременно с `A-scan baseline`, механически
+   сканируемым одиночным преобразователем и `PAUT/FMC oracle` при общей
+   апертуре, полосе и падающей энергии.
+2. Основные расчёты живут в 2D/2.5D. Каждый результат обязан иметь статус
+   `translation_kz`, `axisymmetric_m`, `group_sector`,
+   `plane_strain_surrogate` или `full_3d_required`.
+3. P- и S-волны, их разные скорости, затухание и mode conversion входят в
+   оператор; S-составляющая не объявляется заранее только потерей или только
+   полезным каналом.
+4. Денежная цена не назначается до построения физического Pareto-фронта.
+   Ресурсный вектор хранит каналы, transmit events, положения, состояния,
+   fabrication и calibration burden раздельно.
+5. Положительный Born/reduced результат разрешает следующий операторный gate,
+   но не fabrication и не продуктовый POD claim.
+
+## 4. Stage gates проекта
+
+| Gate | Вопрос | Текущий статус |
+|---|---|---|
+| `O0 — task contract` | Что обнаруживаем, где и относительно каких baselines? | **pass** |
+| `O1 — information ceiling` | Разрешима ли задача полной виртуальной апертурой? | **pass** |
+| `O2 — compression frontier` | Сколько кодов/портов сохраняют полезную информацию? | **pass** |
+| `O2c — causal robustness` | Сохраняется ли результат после causal `H(omega)`, pulse covariance и perturbations? | **pass: 4 channels x 2 states** |
+| `O3 — architecture frontier` | Выигрывает ли класс в paired pulse-echo и clutter ensemble? | **pass: expanded F1d, smooth K3,Q1** |
+| `O4 — transfer target` | Какой многопортовый `H(omega)` и с какими допусками нужно изготовить? | **complete: DCT3 modal H(omega)** |
+| `O5 — geometry handoff` | Какая физическая топология реализует выбранный оператор? | **complete: 3-port monolithic mode transformer** |
+| `O6 — physical twin` | Может ли один физический механизм реализовать O4 без скрытой решётки? | **O6j: conditional compact-P12 solid-contact coupon; q8 matching blocked** |
+| `O7 — stationary global states` | Можно ли заменить запрещённое движение четырьмя глобальными состояниями одной головки? | **pass: PZT-2bit и mechanical-2bit на coupled-modal gate** |
+| `O8 — plane-strain boundary` | Выживают ли frozen O7-состояния в конечном упругом блоке с физическими границами и нагрузками? | **conditional pass: PZT; mechanical stopped** |
+| `O8M — manufacturing freeze` | Сохраняется ли механизм у закупаемой PZT и округлённой геометрии? | **pass: BUILD one CTS-3195HD coupon** |
+
+## 5. Доказанное состояние O1/O2
+
+Первый geometry-free pilot использует `lambda_P0=c_P=f0=1`,
+`c_S/c_P=0.5`, апертуру `8 lambda_P0`, ROI
+`x/lambda_P0=2.5--6.0`, `y/lambda_P0=-2.0--2.0` и семь частотных anchors.
+Полный отчёт и словари находятся в
+[`results/operator_space/dimensionless_elastic_born_v0/`](../results/operator_space/dimensionless_elastic_born_v0/README.md).
+
+Физические positive controls пройдены:
+
+```text
+reciprocity error             9.54e-17
+mirror equivariance error     0.0
+FMC numerical rank            136
+FMC stable rank               29.804
+```
+
+Основные результаты:
+
+| Оператор | Каналы | Min detectability | Nonlocal coherence | Stable rank |
+|---|---:|---:|---:|---:|
+| uniform A-scan | 1 | 0.489 | 1.000 | 3.070 |
+| fixed reciprocal focus | 1 | 0.069 | 1.000 | 2.713 |
+| asymmetric dispersive port | 1 | 0.261 | 0.975 | 3.423 |
+| cosine two-port | 2 | 0.397 | 0.842 | 5.462 |
+| cosine four-port | 4 | 0.820 | 0.732 | 7.140 |
+| FMC oracle | 17 | 1.123 | 0.159 | 29.804 |
+
+Fixed focus повышает detectability в своей точке в `8.79x` относительно
+uniform A-scan, но имеет точную неоднозначность `y <-> -y` и плохой минимум
+по ROI. Это сильный `known-zone detection` оператор, а не imaging architecture.
+
+P/S-ablation подтверждает, что поперечная мода несёт информацию: stable rank
+FMC растёт с `25.130` для P-only до `29.804` для P+S. Для двух портов рост
+составляет `4.989 -> 5.462`, для четырёх — `6.674 -> 7.140`.
+
+Идеальная SVD-компрессия сохраняет `44.5%`, `72.9%` и `94.2%` энергии
+словаря при `16`, `32` и `64` абстрактных измерениях. Это aggregate-information
+ceiling, а не требование такого же числа электронных каналов.
+
+## 6. Текущее архитектурное решение O2b
+
+На замороженной библиотеке проверены reciprocal real/complex codebooks с
+сохранением и нарушением reflection sectors. По `300` детерминированных
+кандидатов на семейство дали:
+
+| Порты | Codebook | Min detectability | Nonlocal coherence | Stable rank |
+|---:|---|---:|---:|---:|
+| 2 | cosine baseline | 0.397 | 0.842 | 5.462 |
+| 2 | best complex sector | 0.280 | 0.615 | 8.566 |
+| 4 | cosine baseline | **0.820** | 0.732 | 7.140 |
+| 4 | best real sector | 0.587 | 0.362 | **13.337** |
+| 4 | best complex sector | 0.563 | **0.343** | 12.259 |
+
+Текущий лидер `L2` — четырёхпортовый codebook, сохраняющий even/odd сектора
+группы отражения. Он примерно вдвое уменьшает дальнюю неоднозначность и почти
+вдвое увеличивает stable rank относительно простых cosine-портов.
+
+Два порта остаются условной дешёвой веткой. Ни один из `1200` испытанных
+двухпортовых вариантов не сохранил worst-case detectability A-scan; это не
+математический no-go, но достаточная причина не выбирать два порта по
+умолчанию.
+
+## 7. Результат O2c
+
+Цель — проверить, остаётся ли четырёхпортовый результат после снятия трёх
+оптимистических допущений `O2b`.
+
+### 7.1. Causal transfer
+
+Сравниваются:
+
+1. `carrier_oracle` — замороженная матрица портов;
+2. `static_real_sector` — real amplitudes/signs во всей полосе;
+3. `delay_lift` — carrier phases заменены положительными true-time delays;
+4. `contractive_delay_lift` — frequency-dependent матрица дополнительно
+   масштабируется так, чтобы `sigma_max(W(omega)) <= 1`.
+
+Комплексная carrier-матрица является только верхней границей. В `O4` может
+передаваться лишь causal и contractive target.
+
+### 7.2. Time-bandwidth contract
+
+Семь harmonic anchors не считаются семью независимыми приборами. Проверяются:
+
+```text
+1 central anchor
+3 band anchors
+7 oversampled anchors
+five-cycle pulse weighting
+correlated frequency-feature covariance.
+```
+
+Заявляется только размерность, устойчивая к изменению частотной сетки и
+covariance model.
+
+### 7.3. Perturbation ensemble
+
+Первый безразмерный ensemble включает:
+
+```text
+cP and cS                  +/-1%
+attenuation                +/-20%
+port amplitudes            3% RMS
+port delay/phase           0.02 carrier cycles RMS
+lateral registration       +/-0.10 lambda_P0
+```
+
+Для каждой реализации сохраняются operator metrics и calibration fidelity
+между nominal и perturbed defect dictionaries.
+
+### 7.4. Provisional O2c gates
+
+Для четырёхпортового кандидата:
+
+```text
+nominal minimum detectability       >= 1.0 x A-scan
+Q10 minimum detectability           >= 0.8 x A-scan
+nominal nonlocal coherence          <= 0.50
+Q90 nonlocal coherence              <= 0.60
+nominal stable rank                 >= 10
+Q10 stable rank                     >= 8
+Q10 calibration fidelity            >= 0.90
+max sigma(W(omega))                 <= 1 + numerical tolerance
+```
+
+Провал gate не отправляет проект к новой геометрии. Сначала пересматривается
+число портов, codebook, ROI, разрешение или calibration model.
+
+### 7.5. Одно состояние не прошло; два состояния прошли
+
+Сначала были проверены выбранные на O2b одно-состоянийные targets. Затем ещё
+`1000` четырёхпортовых symmetry-codebooks были оптимизированы непосредственно
+по причинному pulse operator. Лучший номинальный gate score остался равным
+`0.952`; следовательно, провал не списывается на один случайный carrier
+codebook.
+
+Минимальное успешное расширение сохраняет четыре электронных канала, но
+использует два последовательных статических вещественных состояния. Энергия
+между состояниями делится множителем `1/sqrt(2)`. Оба состояния reciprocal,
+contractive и сохраняют even/odd сектора отражения.
+
+| Кандидат | Channels | States | Q10 min / A-scan | Q90 coherence | Q10 stable rank | Q10 calibration fidelity | O2c |
+|---|---:|---:|---:|---:|---:|---:|---|
+| real one-state O2b | 4 | 1 | 0.843 | 0.568 | 7.364 | 0.909 | fail |
+| complex delay one-state | 4 | 1 | 0.915 | 0.603 | 7.475 | 0.884 | fail |
+| real two-state A | 4 | 2 | **1.120** | 0.493 | **10.074** | 0.908 | **pass** |
+| real two-state B | 4 | 2 | 0.995 | **0.489** | 9.846 | **0.910** | **pass** |
+
+Точный текущий архитектурный лидер:
+
+```text
+4 electronic channels
+    x 2 sequential passive static real states
+    x 2 even + 2 odd symmetry ports per state
+    -> O3 entrant.
+```
+
+Complex true-time-delay ветка не продвигается: её лучший двухсостоянийный
+вариант сохраняет высокую обнаружимость и ранг, но имеет Q10 calibration
+fidelity `0.884 < 0.90`.
+
+## 8. Текущий этап O3 и условие перехода к геометрии
+
+O2c закрыт; первый четырёхканальный класс был передан в O3, после чего
+пространство расширено на static и motion ветви. Все классы обязаны пройти
+общий paired transient pulse-echo benchmark с defect/no-defect, ringing,
+backwall, common receive chain и stochastic clutter. Полный preregistered
+benchmark задан в
+[`operator_o3_benchmark_contract.md`](operator_o3_benchmark_contract.md).
+
+Обязательные comparators:
+
+```text
+uniform A-scan
+equal-time mechanical scan
+four-channel one-state negative control
+four-channel two-state entrant
+PAUT/FMC oracle.
+```
+
+Основные O3 observables — `Pd(alpha)` при фиксированном `Pfa=1%`, амплитуда
+`alpha90`, вероятность совместного detection/localization, ошибка локализации
+и доля закрытого разрыва A-scan -> FMC на общем clutter ensemble. Codebook,
+threshold-validation и final-test разделены; идеальное вычитание defect-free
+reference не допускается без оплаты соответствующего измерения.
+
+### 8.1. Результат reduced O3
+
+Frozen campaign выполнен на независимых train/validation/test nuisance
+libraries, `20 000` validation и `20 000` test no-defect trials и `100`
+material/contact/calibration contexts. Полный отчёт находится в
+[`paired_clutter_born_v0/`](../results/operator_space/paired_clutter_born_v0/README.md).
+
+| Архитектура | Pfa upper 95% | Pd at reference | Pdl at reference | alpha90 |
+|---|---:|---:|---:|---:|
+| uniform A-scan | 0.022% | 0.539 | 0.180 | 644.1 |
+| equal-time mechanical scan | 0.926% | **0.990** | **0.983** | **177.8** |
+| four-channel one-state | 2.408% | 0.953 | 0.936 | 233.4 |
+| four-channel two-state | **0.745%** | 0.942 | 0.937 | 235.3 |
+| FMC oracle | 6.246% | 0.979 | 0.972 | 138.4 |
+
+Двухсостоянийный кандидат проходит собственные detection, localization, Pfa
+и PAUT-gap gates. Он закрывает `80.8%` aggregate разрыва A-scan -> FMC; Q10
+по всем `100/100` C3 contexts равен `0.775` при gate `0.50`.
+
+Reduced O3 тем не менее **не пройден**: при тех же восьми transmit events
+одноканальный механический скан имеет `alpha90=177.8` против `235.3` у
+статического кандидата. Второй passive state в основном улучшает rejection
+неизвестного background: Pfa upper падает с `2.41%` для one-state до `0.75%`,
+но detectability почти не меняется.
+
+### 8.2. Параллельная разметка обеих ветвей
+
+Вместо немедленного продуктового выбора обе ветви пересчитаны независимо на
+общем **новом** контракте с base seed `0x04f0a117`. Старый O3 final-test не
+использовался для выбора codebooks или scan layouts. Обе кампании используют
+одинаковые nuisance powers, `10 000/10 000` H0 trials, `24/60`
+validation/test signal contexts и одну амплитудную сетку.
+
+Static campaign охватывает `2 304` codebooks, `192` nuisance-aware finalists
+и шестнадцать заранее замороженных `(K=1..4,Q=1..4)` winners. Motion campaign
+охватывает `32` layouts при `P=1,2,3,4,6,8,12,17`: uniform, compact,
+Chebyshev, aperture sweep и train-only D-optimal.
+
+Полная объединённая карта находится в
+[`combined_frontier_v0/`](../results/operator_space/combined_frontier_v0/README.md).
+
+### 8.3. Static frontier
+
+Три статические архитектуры проходят все intrinsic gates:
+
+| Static operator | Channels `K` | States `Q` | Tx events | alpha90 | Pfa upper 95% |
+|---|---:|---:|---:|---:|---:|
+| unconstrained | 4 | 2 | 8 | 185.7 | 1.167% |
+| unconstrained | 3 | 3 | 9 | 183.9 | 0.906% |
+| balanced even/odd sectors | 3 | 4 | 12 | **168.6** | **0.862%** |
+
+`K3,Q4` является лучшим проверенным static endpoint по `alpha90`. `K4,Q2`
+использует минимальное число событий, `K3,Q3` уменьшает channels и states.
+Кажущийся лидер `K4,Q4` с `alpha90=148.0` отвергнут из-за
+`Pfa upper=3.21%`: это background over-specialization, а не Pareto-точка.
+
+Balanced reflection sectors выигрывают полезный high-information endpoint;
+pure even или pure odd family часто сохраняет точную неоднозначность. Для
+аналитического 2D -> 3D lift это аргумент в пользу совместного использования
+irreducible sectors, а не одного симметричного поля.
+
+### 8.4. Motion frontier
+
+| Motion operator | Channels | Positions/events | alpha90 | Reference gate |
+|---|---:|---:|---:|---|
+| train-D-optimal | 1 | 8 | 193.6 | narrow fail (`Pd=0.895`) |
+| compact span `5.5 lambda` | 1 | 12 | 183.4 | pass |
+| full monostatic aperture | 1 | 17 | **159.7** | pass |
+
+При optimistic `T=events` первый aggregate crossover относительно прежнего
+frozen `K4,Q2` возникает около `P=12`. Но новый static `K3,Q4` при тех же
+двенадцати событиях лучше: `168.6` против `183.4`. Только полный `P17` scan
+обгоняет лучший проверенный static endpoint примерно на `5.3%`, используя
+семнадцать событий и шестнадцать перемещений.
+
+При ненулевой цене settle/travel static branch быстро выходит вперёд. При
+жёстком ограничении одного электронного канала motion остаётся сильным классом.
+
+### 8.5. Объединённый ресурсный вывод
+
+Одного победителя нет. Главные точки взаимно недоминируемы:
+
+```text
+static K4,Q2   4 channels,  8 events, 1 switch,  alpha90=185.7
+static K3,Q3   3 channels,  9 events, 2 switches, alpha90=183.9
+static K3,Q4   3 channels, 12 events, 3 switches, alpha90=168.6
+motion P12     1 channel,  12 events, 11 moves,   alpha90=183.4
+motion P17     1 channel,  17 events, 16 moves,   alpha90=159.7
+FMC            17 channels, 17 events,            alpha90≈134.
+```
+
+Ресурсный вектор поэтому не сворачивается в одну назначенную цену. В
+[`combined_resource_frontiers.csv`](../results/operator_space/combined_frontier_v0/combined_resource_frontiers.csv)
+сохранены четыре sensitivity conventions: `events_only`,
+`balanced_overhead`, `motion_expensive`, `state_expensive`.
+
+Обе ветви остаются открытыми. Если не выбирать между ними, следующий
+разрешённый physics step — paired full-wave сравнение не более четырёх frozen
+representatives:
+
+```text
+static K4,Q2  — minimum-event valid static
+static K3,Q4  — best valid static alpha90
+motion P12    — first valid motion class
+motion P17    — best tested low-channel alpha90.
+```
+
+### 8.6. Full-wave carrier F0
+
+Четыре frozen representatives перенесены в одну 2D plane-strain
+full-elastic постановку. Полный `17 x 17` элементный отклик решается для
+общей пары «заполненный образец / свободная круглая полость `r=2 mm`»;
+static, motion, A-scan и FMC затем являются только линейными проекциями одной
+физической матрицы. Контракт переноса находится в
+[`operator_o3_fullwave_contract.md`](operator_o3_fullwave_contract.md),
+а прошедший refinement-run — в
+[`fullwave_carrier_commonmesh_h1p0_v0/`](../results/operator_space/fullwave_carrier_commonmesh_h1p0_v0/README.md).
+
+Номинальные независимые сетки выявили численный blocker: paired mirror
+residual был `25.8%`. Refinement независимых сеток дал `10.2%`, общая
+conforming-сетка `h=1.5 mm` — `4.70%`, и общая сетка `h=1.0 mm` —
+`1.805% < 3%`. Исходный gate не менялся. На финальной сетке reciprocity
+residual равен `5.85e-14`; tangential/normal norm для scattering равен `1.25`,
+то есть mode conversion не исчез из модели.
+
+Одночастотный центральный круглый дефект почти одномодов и потому особенно
+благоприятен для uniform A-scan. Его carrier contrast нельзя превращать в
+архитектурный verdict: здесь нет ROI-словаря, локализации, pulse separation
+или clutter ensemble. Содержательный вывод F0 — физический оператор и
+нормировки перенесены, а не то, что A-scan выиграл O3.
+
+F0 разрешает следующий уровень `F1`: broadband пятицикловый paired
+pulse-echo с конечным defect ensemble, backwall/ringing/contact/material
+variations и исходными `Pfa/Pd/Pdl/alpha90` gates. До положительного F1 O4 и
+синтез геометрии остаются заблокированы.
+
+### 8.7. Direct transient F1a и stochastic F1b
+
+Прямой multi-RHS Newmark solver строит `17 x 17 x 510` response за одну
+факторизацию на mesh. Пятицикловый `242 kHz` burst рассчитан до `70 us` с
+шагом `0.138 us`; свободный backwall и P/S impedance boundaries сохранены.
+Полный `F1a`-отчёт находится в
+[`fullwave_transient_v0/`](../results/operator_space/fullwave_transient_v0/README.md).
+
+`F1a` прошёл physics gates:
+
+```text
+reciprocity residual              3.73e-14
+paired mirror residual            0.549%       (gate <= 3%)
+precursor energy fraction         2.63e-11     (gate <= 1%)
+paired tangential/normal norm     0.662
+```
+
+Затем рассчитан finite full-wave словарь из шести классов: два размера void,
+три глубины, lateral offset и наклонная щель. Frozen stochastic protocol
+использует train-only nuisance subspace, общий FMC-derived electronics noise,
+независимые `10 000/10 000` H0 validation/test trials и contact/material/
+ringing variations. Отчёт находится в
+[`fullwave_f1b_pilot_v0/`](../results/operator_space/fullwave_f1b_pilot_v0/README.md).
+
+Ни один static/motion кандидат не прошёл F1b pilot:
+
+| Architecture | Pfa upper 95% | Pd ref | Pdl ref | Min class Pd | alpha90 |
+|---|---:|---:|---:|---:|---:|
+| static `K4,Q2` | 1.532% | 0.858 | 0.851 | 0.183 | 2.702 |
+| static `K3,Q4` | 1.756% | 0.849 | 0.838 | 0.238 | 2.713 |
+| motion `P12` | **1.113%** | 0.581 | 0.562 | 0.058 | 5.046 |
+| motion `P17` | 1.393% | 0.603 | 0.584 | 0.071 | 5.067 |
+| FMC | 1.575% | **0.978** | **0.976** | **0.892** | 1.523 |
+
+Главный blocker ещё фундаментальнее: uniform A-scan имеет `alpha90=0.635`,
+то есть лучше FMC на данном узком prior. Изолированные дефекты различаются по
+времени, а coherent uniform transmit получает SNR advantage; в словаре нет
+structural clutter или нескольких одновременных scatterers. Поэтому
+`A-scan -> FMC` gap не определён, и pilot не является валидным пространством
+для выбора приближения к PAUT.
+
+Это было no-go для frozen F1b и требование пересобрать task ensemble: плотная
+lateral ROI, full-wave multi-scatterer background и явный PAUT positive
+control. Возвращение было сделано к operator prior, а не к линзе.
+
+### 8.8. Structural clutter F1c и expanded calibration F1d
+
+F1c использует пять одинаковых targets `r=1 mm` на глубине `60 mm` и
+lateral-позициях `-28,-14,0,14,28 mm`; каждый physical context содержит пять
+настоящих traction-free background voids. H0 и пять H1 строятся из одной
+conforming master mesh, поэтому multiple scattering решается direct transient
+без independent mesh jitter. Контракт находится в
+[`operator_o3_f1c_structural_contract.md`](operator_o3_f1c_structural_contract.md).
+
+Первый four-context pilot создал требуемое пространственное преимущество FMC
+и выбрал unconstrained `K4,Q2`, но следующий fresh context сорвал Pfa даже у
+FMC. Это показало недостаток числа физических calibration contexts, а не
+исчезновение spatial information.
+
+В revised F1d старые пять наблюдавшихся contexts явно переведены в
+development/train. Threshold заморожен на двух новых validation, final metrics
+получены на двух других test contexts. Общий electronics noise сохранён.
+Полный отчёт находится в
+[`fullwave_f1d_expanded_v0`](../results/operator_space/fullwave_f1d_expanded_v0/README.md).
+
+| Architecture | Pfa upper 95% | Pd@3 | exact Pdl@3 | Min Pd | alpha90 | Gap closure | Gate |
+|---|---:|---:|---:|---:|---:|---:|---|
+| A-scan | **0.027%** | 0.537 | 0.221 | 0.000 | 9.697 | 0.000 | fail |
+| smooth `K3,Q1` | 0.089% | 0.982 | 0.976 | 0.957 | 2.427 | 0.910 | **pass** |
+| smooth `K4,Q1` | 0.312% | **0.993** | **0.983** | **0.988** | 1.911 | 0.974 | **pass** |
+| unconstrained `K4,Q2` | 1.361% | 0.980 | 0.979 | 0.947 | 2.120 | 0.948 | fail |
+| FMC | 1.026% | 0.989 | 0.983 | 0.980 | **1.706** | 1.000 | oracle |
+
+PAUT positive control прошёл: FMC template stable rank `4.300`, coherence
+`0.146`, exact Pdl `0.983`, Pfa upper `1.026%`. По заранее заданному resource
+priority выбран `K3,Q1`: три электронных канала, одно состояние и три events.
+`K4,Q1` остаётся robust fallback.
+
+### 8.9. O4 transfer target и O5 handoff
+
+Положительный O3 сформировал O4:
+
+```text
+target multiport H(omega)
+amplitude / phase / group-delay tolerances
+allowed insertion loss and reflection
+port isolation / reciprocity
+minimum useful calibration fidelity.
+```
+
+Финальный target находится в
+[`o4_k3q1_transfer_target_v0`](../results/operator_space/o4_k3q1_transfer_target_v0/README.md).
+Это первые три гладких ортонормированных DCT aperture modes (`even/odd/even`)
+в полосе `193.6--290.4 kHz`. Hard gates: amplitude error `<=3% RMS`,
+differential delay `<=82.6 ns RMS`, transfer fidelity `>=0.98`, port coherence
+`<=0.15`, reciprocity residual `<=3%`. Без drive compensation loss ограничен
+`0.921 dB` one way.
+
+O5 handoff зафиксирован в
+[`operator_o5_geometry_handoff.md`](operator_o5_geometry_handoff.md): один
+трёхпортовый монолитный нерезонансный mode transformer с непрерывной
+апертурой, без element-wise phases и без state switch. Первый lift —
+`translation_kz`; objective будущей единственной геометрии — совпадение
+измеренного `H(omega)`, не focal peak.
+
+### 8.10. O6a: короткая однородная modal plate
+
+Первый physical twin был заморожен до расчёта: три распределённых DCT-порта,
+однородная полоса Al 6061 шириной `71.6 mm` и длиной `3.0 mm`, затем
+согласованное продолжение в алюминий. Скалярная P-оценка для второй чётной
+гармоники на нижней границе полосы даёт предельную длину `4.413 mm` по
+`82.6 ns`; поэтому длина `3.0 mm` выбрана с запасом, а не из sweep.
+Контракт находится в
+[`operator_o6_physical_twin_contract.md`](operator_o6_physical_twin_contract.md),
+полный результат — в
+[`o6a_modal_gate_v0`](../results/operator_space/o6a_modal_gate_v0/README.md).
+
+Полноупругий quadratic port pencil выявил `14--21` открытых правых P/S-mixed
+ветвей в полосе. Энергия и низкая межпортовая coherence сами по себе не стали
+проблемой, но требуемые пространственные профили не являются тремя чистыми
+модами такого широкого свободного guide:
+
+| Метрика dense band | Результат | Gate |
+|---|---:|---:|
+| source-profile fidelity | `0.96099` | `>=0.98` |
+| propagated fidelity | `0.98190` | `>=0.98` |
+| maximum port coherence | `0.06896` | `<=0.15` |
+| column imbalance | `0.366 dB` | `<=0.75 dB` |
+| differential amplitude RMS | `16.29%` | `<=3%` |
+| differential delay RMS | `>1 us` около cut-on | `<=82.6 ns` |
+| useful one-way amplitude | `0.93783` | `>=0.8994` |
+
+Targeted discretization check `120/160/200` элементов по сечению даёт
+source fidelity `0.96103/0.96109/0.96111` и amplitude RMS
+`15.72/15.26/15.27%`. Фазовая производная около открытия ветви сходится
+хуже, но verdict от неё не зависит: два независимых shape-gate уже устойчиво
+провалены.
+
+По заранее заданному stopping rule 2D FEM прямоугольника и as-built F1d replay
+не запускались. Отвергнут не оператор `K3,Q1`, а конкретный механизм
+`DCT profiles -> laterally guiding uniform Al plate`. Переход к `K4,Q1` не
+лечит этот механизм: он сохраняет те же первые три профиля и добавляет ещё
+одну более высокую гармонику.
+
+Следующий разрешённый `O6b` — load-local modal transducer: три фиксированных
+распределённых пьезоэлектрических coupling-профиля действуют непосредственно
+на контактной плоскости и не проходят через латеральный Al-guide. Сначала
+нужен coupled electromechanical/radiation upper bound с общей нагрузкой и
+reciprocity; геометрия слоя разрешается только если этот bound проходит O4.
+
+### 8.11. O6b: direct load-local PZT coupler
+
+O6b сохранил `K3,Q1` и перенёс три DCT-профиля непосредственно к нагрузке.
+Контракт находится в
+[`operator_o6b_direct_coupler_contract.md`](operator_o6b_direct_coupler_contract.md).
+
+Сначала рассчитан необходимый power-wave upper bound: точный outgoing
+plane-strain P/S surface impedance Al для `k_y=q*pi/W`, продольный mechanical
+port PZT-5A и заранее замороженный `100 um` epoxy bond. Dense `49`-точечный
+bound прошёл весь O4:
+
+| Upper-bound metric | Result | Gate |
+|---|---:|---:|
+| fidelity | `0.999993` | `>=0.98` |
+| imbalance | `0.072 dB` | `<=0.75 dB` |
+| differential amplitude RMS | `0.353%` | `<=3%` |
+| differential delay RMS | `0.705 ns` | `<=82.6 ns` |
+| useful amplitude | `0.90457` | `>=0.8994` |
+
+Это авторизовало одну finite geometry без sweep: `6.0 mm` изотропный
+mechanical PZT-5A surrogate, `0.10 mm` epoxy и `35 mm` matched Al load.
+Три непрерывные DCT-тяги приложены к общей задней поверхности PZT; выходной
+`H(omega)` измерен в 17 bins на bonded Al interface на `13` частотах.
+Полный пакет находится в
+[`o6b_stack_twin_v0`](../results/operator_space/o6b_stack_twin_v0/README.md).
+
+Finite twin не прошёл O4:
+
+| Finite-twin metric | Result | Gate |
+|---|---:|---:|
+| fidelity | `0.97331` | `>=0.98` |
+| port coherence | `0.04499` | `<=0.15` |
+| imbalance | `0.230 dB` | `<=0.75 dB` |
+| differential amplitude RMS | `19.59%` | `<=3%` |
+| differential delay RMS | `846 ns` | `<=82.6 ns` |
+| useful amplitude | `0.88250` | `>=0.8994` |
+| reciprocity residual | `1.31e-15` | `<=3%` |
+
+Refinement `PZT/Al h=0.60/1.00 -> 0.45/0.75 mm` на трёх band anchors
+сохранил worst fidelity `0.97331 -> 0.97262` и amplitude RMS
+`19.59 -> 19.84%`. Следовательно, failure не является mesh artifact.
+
+Физический вывод: load-local coupling как предел возможен, но сплошная
+изотропная PZT-пластина сама становится коротким латеральным multimode guide и
+возвращает механизм O6a. Согласно stopping rule electrical terminal model и
+F1d replay не запускались.
+
+Следующий разрешённый `O6c` — один laterally-decoupled `1-3` composite /
+effective-anisotropic layer, который физически приближает прошедший O6b upper
+bound. Это изменение механизма, а не sweep толщины: поперечная effective
+stiffness должна быть подавлена при сохранении thickness coupling. Сначала
+замораживается один homogenized tensor и проверяется тот же finite `H(omega)`;
+явная pillar/kerf geometry разрешается только после такого pass.
+
+### 8.12. O6c: непрерывный homogenized 1-3 composite
+
+До solve был заморожен один `65%` ceramic random-fibre effective medium:
+`rho=5461 kg/m3`, измерительный axial impedance `17 MRayl`,
+`(C11,C22,C12,C66)=(52.921,17.465,8.674,4.391) GPa`, `Q=35`. Axial stiffness
+получена из импеданса; lateral, cross и shear stiffness — harmonic mixtures
+проектных PZT и photopolymer. Ни одно число не подбиралось по O4. Контракт —
+[`operator_o6c_composite_contract.md`](operator_o6c_composite_contract.md),
+результат —
+[`o6c_composite_twin_v0`](../results/operator_space/o6c_composite_twin_v0/README.md).
+
+На неизменной геометрии `6.0 mm composite -> 0.10 mm epoxy -> 35 mm Al` и
+той же 13-точечной полосе получено:
+
+| Finite-twin metric | O6c | Gate |
+|---|---:|---:|
+| fidelity | `0.99384` | `>=0.98` |
+| port coherence | `0.01748` | `<=0.15` |
+| imbalance | `0.173 dB` | `<=0.75 dB` |
+| differential amplitude RMS | `9.02%` | `<=3%` |
+| differential delay RMS | `641 ns` | `<=82.6 ns` |
+| useful amplitude | `0.92970` | `>=0.8994` |
+| maximum singular value | `0.97390` | `<=1` |
+| reciprocity residual | `5.94e-16` | `<=3%` |
+
+Lateral decoupling дала существенное, но недостаточное улучшение относительно
+O6b: fidelity `0.97331 -> 0.99384`, amplitude error `19.59% -> 9.02%`, delay
+`846 -> 641 ns`. Худший отдельный профиль — DCT2 (`10.65%`, `784 ns`).
+Common raw compliance монотонно уменьшается по sampled band, поэтому данные не
+позволяют объяснить failure только номинальным half-wave resonance слоя около
+`259.4 kHz`: провал остаётся дифференциальным пространственным эффектом
+непрерывной среды.
+
+По preregistered stopping rule mesh refinement, explicit homogenization cell,
+electrical terminal model и F1d replay не запускались. Закрыт именно класс
+`continuous 6 mm effective layer`, а не идеальный load-local bound.
+
+Следующий допустимый механизм `O6d` обязан разорвать латеральный механический
+путь топологически, а не ещё раз уменьшать effective stiffness. Разрешён
+только low-rank isolation bound для механически разделённых колонок с тремя
+общими reciprocal electrical buses: без individual pixel phases, delay laws
+и 17 независимых pulser/ADC. До доказательства пассивной реализации трёх
+DCT-профилей и оценки fabrication/calibration burden явная kerf geometry и
+FEM запрещены. Это отдельная проверка на «скрытую решётку», а не автоматический
+переход к устройству.
+
+### 8.13. O6d: mechanically isolated three-bus bound
+
+O6d разделил две причины сложности до какой-либо kerf geometry. Контракт —
+[`operator_o6d_isolated_bus_contract.md`](operator_o6d_isolated_bus_contract.md),
+результат —
+[`o6d_isolated_bus_bound_v0`](../results/operator_space/o6d_isolated_bus_bound_v0/README.md).
+
+Сначала measured O6c transfer был разложен как
+`H=g(omega)S+D(omega)`. В optimistic isolated model оставлена доля
+`kappa*D`. Все O4 gates проходят только при
+`kappa<=0.136698`: требуется подавить не менее `86.33%` differential
+оператора O6c (`-17.28 dB` residual amplitude). Активным ограничением на
+границе является delay `82.6 ns`; amplitude RMS там уже `1.236%`. Это
+требование к оператору изоляции, не предсказание ширины kerf.
+
+Независимый electrical upper bound разрешил идеальный lossless `3x3` port
+rotation, continuous signed weights, fixed balancing, нулевые loss/delay и
+точную reciprocity. После `200000` детерминированных SO(3) rotations и local
+refinement получен frontier:
+
+| Внутренняя карта | Активные связи | Fidelity | Amplitude RMS | Useful | O4 |
+|---|---:|---:|---:|---:|---|
+| одна bus на колонку | `17` | `0.95519` | `25.55%` | `0.91228` | fail |
+| до двух bus на колонку | `34` | `0.99919` | `4.04%` | `0.99727` | fail |
+| полная три-bus карта | `50` | `1.00000` | `0%` | `1.00000` | pass upper bound |
+
+У two-bus карты проходит всё, кроме amplitude RMS `4.04% > 3%`. Поиски на
+gate score, fidelity и minimum amplitude error сошлись к одному результату.
+Это сильный numerical result, но не certified global optimum; поэтому no-go
+относится к протестированному sparse family, а не ко всем возможным пассивным
+сетям.
+
+Аналитически точная full map требует `50` nonzero bus-to-column taps и `18`
+различных continuous magnitude ratios. Quantization проходит O4 впервые при
+`8` уровнях на DCT-port (`17` различных ratios по полной карте); четыре уровня
+дают amplitude RMS `7.37%`. Такая реализация имеет три внешних канала, но
+является именно пассивным `3-to-17` beamformer, который O5 заранее пометил как
+fallback из-за fabrication/calibration burden.
+
+По stopping rule kerf FEM и F1d replay не запущены. Следующий этап обязан
+сохранить обе ветви открытыми и сравнимыми:
+
+1. **beamformer branch:** сначала electrical loss/tolerance/cost bound полной
+   `50-tap`, 8-level карты; geometry разрешается только после него;
+2. **architecture-return branch:** вернуть на общий resource frontier уже
+   проверенные mechanically scanned `P12/P17` варианты, не кредитуя им цену
+   как трёхканальному static operator.
+
+Выбирать между ними до общей таблицы fabrication, calibration, acquisition
+time и detection quality запрещено.
+
+### 8.14. O6e: passive-beamformer versus motion resource fork
+
+O6e сохранил обе O6d-ветви и запретил искусственный scalar cost. Контракт —
+[`operator_o6e_resource_fork_contract.md`](operator_o6e_resource_fork_contract.md),
+результат —
+[`o6e_resource_fork_v0`](../results/operator_space/o6e_resource_fork_v0/README.md).
+
+#### Полная q8 passive map
+
+Первая прошедшая O6d-квантизация (`50` active taps, `8` magnitude levels на
+DCT-port, `17` различных ratios) имеет useful amplitude `0.999053`. Поэтому
+номинальный common one-way loss ceiling до O4 равен `0.913 dB`.
+
+Frozen F1d replay на тех же test contexts и random draws прошёл:
+
+| Pfa upper | Pd | Pdl | Min Pd | alpha90 | Gap closure |
+|---:|---:|---:|---:|---:|---:|
+| `0.089%` | `0.982` | `0.976` | `0.957` | `2.4298` | `0.909` |
+
+Относительно ideal DCT3 alpha90 ухудшился лишь на `0.137%`. Это проверяет
+quantized operator, но ещё не parasitic physical network.
+
+Fresh O6e tolerance ensemble использовал `50000` общих draws на каждой точке,
+13 частот, единый worst-band contractive scale и joint O4 gate. Максимальный
+общий multiplier с one-sided Wilson lower-95 `>=99%` равен `0.7516`, то есть:
+
+```text
+tap log-amplitude RMS       <= 2.255%
+tap differential delay RMS <= 62.081 ns
+observed joint pass         99.076%
+Wilson lower 95             99.003%
+q01 useful amplitude        0.930920
+remaining common loss       0.299 dB
+```
+
+При полном исходном O4 perturbation budget `3% / 82.6 ns` jointly проходят
+только `20.694%` draws. Следовательно, coefficient tolerance нельзя целиком
+отдать отдельным taps: суммарные fabrication и network errors должны быть
+ниже. Single-open audit проходит только для `2/50` самых слабых DCT2 taps;
+fault tolerance архитектуре не засчитывается.
+
+#### Несжатый resource frontier
+
+| Architecture | Ch | Events | Positions / moves | T electronic / settle / travel / slow | Columns | Passive taps | Gap closure* |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| q8 beamformer | `3` | `3` | `1 / 0` | `3 / 3 / 3 / 3` | `17` | `50` | `0.909` |
+| compact P12 | `1` | `12` | `12 / 11` | `12 / 23 / 28.5 / 67` | `1` | `0` | `0.868` |
+| uniform P17 | `1` | `17` | `17 / 16` | `17 / 33 / 41 / 97` | `1` | `0` | `0.931` |
+
+`*` Beamformer использует full-wave frozen F1d, motion — reduced fresh Born
+O3. Gap closures нормированы внутри своих evidence campaigns и не являются
+одним ROC-экспериментом.
+
+Точный обмен: beamformer тратит на два electronic channels больше и добавляет
+`50` калибруемых passive taps, но экономит `9/14` transmit events и `11/16`
+moves относительно P12/P17. Motion избегает distributed network, но сохраняет
+непроверенные encoder error, couplant reset и probe-footprint риски. Поэтому
+ни одна ветвь не доминирует полный resource vector.
+
+Следующий разрешённый `O6f` снова парный:
+
+1. **O6f-A:** одна реализуемая reciprocal q8 network topology с parasitic
+   loss, bandwidth, impedance и tolerance accounting; без geometry sweep;
+2. **O6f-B:** positioning/contact perturbation campaign для frozen P12/P17,
+   без повторной оптимизации layout на test.
+
+Scalar winner и prototype fabrication запрещены, пока обе отсутствующие
+координаты не измерены на сопоставимых gates.
+
+### 8.15. O6f: paired physical-risk audit
+
+Контракт был заморожен до расчёта обеих ветвей:
+[`operator_o6f_physical_risk_contract.md`](operator_o6f_physical_risk_contract.md).
+Сводный вывод и следующий gate находятся в
+[`operator_o6f_synthesis.md`](operator_o6f_synthesis.md).
+
+#### O6f-A: reciprocal q8 lattice
+
+Квантованный `17 x 3` оператор точно разложен на три почти единичных
+singular-value attenuators, два малых `3 x 3` input transforms и
+`45` adjacent-Givens output couplers. Численная ошибка реконструкции равна
+`7.0e-16`. В optimistic модели, где input blocks и нагрузки пока идеальны:
+
+```text
+uniform loss ceiling / output coupler       0.047376 dB
+active loss gate                            amplitude RMS = 3%
+uniform delay ceiling / output coupler      15.252 ns
+active delay gate                           differential delay = 82.6 ns
+99%-Wilson angle RMS ceiling                0.4073 deg
+99%-Wilson component delay RMS ceiling      8.1465 ns
+```
+
+Задержка первоначально была подписана как `passivity` из-за численной ничьей
+`sigma_max=1+7e-16`; audit показал, что bisection в действительности
+останавливает differential-delay gate. Результат исправлен без изменения
+границы или Monte Carlo.
+
+Это topology-bound PASS, но ещё не electrical prototype: общий loss budget
+должен оплатить два входных hybrid blocks, dump paths, winding/dielectric
+loss и mismatch к `17` пьезоэлектрическим нагрузкам.
+
+#### O6f-B: frozen P12/P17 motion replay
+
+Номинальные dictionaries, train nuisance precision и сохранённые thresholds
+восстановлены без переобучения. Исходные `alpha90`, reference `Pd/Pdl` и
+целые числа H0 false alarms воспроизведены точно. После этого выполнен paired
+прогон на тех же `60` signal contexts и `12000` fresh H0 trials на точку.
+
+| Layout | Scale | Position RMS | Contact log-amp RMS | Delay RMS | Pfa upper | alpha90 ratio | Pdl ref |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| compact P12 | `2.0` | `0.10 lambda` | `10%` | `0.04 cycles` | `0.627%` | `1.0611` | `0.8777` |
+| full P17 | `2.0` | `0.10 lambda` | `10%` | `0.04 cycles` | `0.927%` | `1.0834` | `0.9140` |
+
+Оба варианта проходят все три frozen gates до верхней протестированной точки.
+Ближайшее ограничение у обоих — относительный `alpha90 <= 1.10`; у P17 запас
+меньше, несмотря на лучшую абсолютную чувствительность.
+
+O6f не даёт scalar winner. Следующий `O6g` обязан закрыть две конкретные
+неопределённости без переоптимизации операторов:
+
+1. **O6g-A:** joint end-to-end budget полной q8 сети, включая оба input
+   transforms, attenuator/dump paths и одновременные loss/tolerance errors;
+2. **O6g-B:** найти coupled failure boundary P12/P17 выше `scale=2` и
+   one-at-a-time attribution encoder/contact-amplitude/contact-delay.
+
+После O6g дешёвый reduced surrogate для выигравшей координаты считается
+исчерпанным: следующий положительный шаг должен повышать evidence level до
+loaded RLC/piezo network или full-wave contact/lift-off, а не добавлять ещё
+один Born sweep.
+
+### 8.16. O6g: joint budgets and finite failure boundaries
+
+O6g был последним разрешённым reduced-model этапом. Контракт —
+[`operator_o6g_joint_boundary_contract.md`](operator_o6g_joint_boundary_contract.md),
+сводный handoff —
+[`operator_o6g_synthesis.md`](operator_o6g_synthesis.md).
+
+#### O6g-A: complete q8 network
+
+Обе signed input rotations разложены ещё на `3+3` Givens couplers; вместе с
+output lattice полная сеть содержит `51` rotation couplers и три
+attenuator/dump paths. Ошибка реконструкции q8 равна `6.70e-16`.
+
+| Budget | Zero-error ceiling | Active gate |
+|---|---:|---|
+| insertion loss каждого из 51 coupler | `0.045074 dB` | amplitude RMS |
+| excess loss каждого attenuator path | `0.912715 dB` | useful amplitude |
+| multiplier луча через половину обоих ceilings | `1.18759` | useful amplitude |
+
+При zero loss совместный `99%`-Wilson manufacturing scale равен `2.1572`:
+`0.2157 deg` coupler-angle RMS, `4.314 ns` coupler/attenuator delay RMS и
+`2.157%` attenuator log-amplitude RMS. На preregistered allocation
+`0.022537 dB/coupler + 0.456357 dB/attenuator path` остаётся scale `1.1472`:
+
+```text
+coupler angle RMS             0.1147 deg
+coupler delay RMS             2.294 ns
+attenuator log-amplitude RMS  1.147%
+attenuator delay RMS          2.294 ns
+Wilson lower 95               99.005%
+```
+
+Это end-to-end ideal-network PASS, но не loaded electrical PASS.
+
+#### O6g-B: P12/P17 motion thresholds
+
+Те же contexts, error draws и noise streams O6f были продолжены через первый
+отказ и 12-step bisection. Никакого reoptimization не выполнялось.
+
+| Layout | Scenario | Max passing scale | Physical ceiling | First failed gate |
+|---|---|---:|---|---|
+| P12 | coupled | `2.35522` | `0.1178 lambda`, `11.78%`, `0.0471 cycles` | alpha90 |
+| P17 | coupled | `2.23883` | `0.1119 lambda`, `11.19%`, `0.0448 cycles` | alpha90 |
+| P12 | position only | `2.76808` | `0.1384 lambda` | alpha90 |
+| P17 | position only | `2.57225` | `0.1286 lambda` | alpha90 |
+| P12 | delay only | `3.14356` | `0.0629 cycles` | Pfa |
+| P17 | delay only | `2.69906` | `0.0540 cycles` | Pfa |
+| P12 | amplitude only | `5.52696` | `27.63%` | Pfa |
+| P17 | amplitude only | `4.53560` | `22.68%` | Pfa |
+
+P17 сохраняет лучшую absolute detection, но имеет меньший relative physical
+margin по каждому сценарию. Для обеих архитектур coupled предел ниже любого
+one-at-a-time: комбинацию encoder/contact phase/contact amplitude нельзя
+сертифицировать независимыми scalar tolerances.
+
+Reduced evidence теперь исчерпан. Следующий `O6h` не имеет права продолжать
+идеальные Born/coupler sweeps:
+
+1. q8 переносится в reciprocal scattering completion с реально нагруженными
+   piezo/BVD terminals и broadband matching;
+2. motion переносится в физическую layered-contact/lift-off transmission
+   model с multiple reflections, а затем только прошедший вариант — в 2D
+   full-wave spot check.
+
+Prototype selection остаётся запрещённым до O6h.
+
+### 8.17. O6h: loaded network and physical contact
+
+O6h впервые повысил evidence level за пределы unilateral network и заданной
+вручную пары contact amplitude/delay. Контракт —
+[`operator_o6h_loaded_physics_contract.md`](operator_o6h_loaded_physics_contract.md).
+
+#### Loaded q8
+
+q8 embedded в точную reciprocal lossless `23 x 23` scattering matrix:
+`3` public, `17` piezo и `3` matched dump ports. Isometry error `3.69e-16`.
+Полный multiple-reflection resolvent с series-BVD loads дал:
+
+```text
+maximum passing effective Q       1.48148
+active gate                       10 dB public return loss
+mismatch audit Q                  0.74074
+99%-Wilson resonance RMS          2.254%
+99%-Wilson resistance log RMS     4.509%
+99%-Wilson Q log RMS              11.272%
+```
+
+Intrinsic `Q=35` не проходит: worst-band return loss `0.069 dB`, useful
+amplitude `0.1261`. Следовательно, q8 требует реального broadband /
+multiresonant matching, а не только точных couplers.
+
+#### Layered motion contact
+
+Exact normal-incidence transfer matrix для жидкого слоя с multiple reflections
+дал физические границы:
+
+| Layout | Max scale | Thickness RMS | Z log RMS | c log RMS | First gate |
+|---|---:|---:|---:|---:|---|
+| P12 | `1.24463` | `38.06 um` | `12.45%` | `6.22%` | Pfa |
+| P17 | `0.98279` | `30.05 um` | `9.83%` | `4.91%` | Pfa |
+
+P17 уже не проходит nominal scale `1.0`. P12 проходит normal gate, но exact
+2D solid--fluid--solid P/S spot с energy error `4.0e-15` его останавливает:
+nominal minimum layer/direct power до `45 deg` только `0.654`, изменение
+S-fraction `0.233`. Даже favourable one-sigma anchor даёт `0.725`.
+Жидкостный moving contact для текущей ROI закрыт.
+
+### 8.18. O6i: mitigation-class map
+
+Контракт — [`operator_o6i_mitigation_contract.md`](operator_o6i_mitigation_contract.md).
+
+Простое resistive broadening q8 от `Q=35` до `1.48148` требует `23.625x`
+total resistance и оставляет только `4.233%` полезной мощности, amplitude
+`0.2057 < 0.8994`. Этот mitigation STOP; lossless/multiresonant matching
+остаётся отдельной незаданной topology-задачей.
+
+Для motion exact three-solid 2D map проверил `168` density-valid property
+points. `122` прошли исходный angular gate, `84` — строгий interior gate.
+Frozen handoff по preregistered rule:
+
+```text
+ZP / sqrt(Zprobe Zsample)      0.75
+cP / cP_Al                    1.00
+cS / cP                       0.25
+rho                           2053.6 kg/m3
+thickness                     0.02 lambdaP = 505.96 um
+minimum power, 0--45 deg      0.9441
+maximum Delta S fraction      0.0317
+```
+
+Это property target для shear-transmitting dry/solid contact, не выбранный
+коммерческий материал.
+
+### 8.19. O6j: final numerical attachment qualification
+
+Контракт —
+[`operator_o6j_attachment_qualification_contract.md`](operator_o6j_attachment_qualification_contract.md),
+сводный handoff —
+[`operator_o6j_final_handoff.md`](operator_o6j_final_handoff.md).
+
+Все `16/16` exact 2D attachment corners прошли: worst minimum power `0.9139`,
+worst `Delta S=0.04985`, maximum energy-balance error `1.33e-15`.
+
+Frozen P12 detector replay одновременно включал fixed encoder RMS
+`0.05 lambda` и exact solid-contact response. На nominal attachment scale
+`1.0`:
+
+```text
+Pfa Wilson upper 95%       0.441%
+alpha90 / O6f zero error   1.00874
+reference Pdl              0.9055
+```
+
+Finite attachment boundary равен `9.06836`: `90.68%` thickness log-RMS,
+`45.34%` impedance log-RMS и `18.14%` cP log-RMS; первым ломается Pfa.
+Это большой numerical margin, а не предлагаемый manufacturing tolerance.
+
+**Текущий архитектурный verdict:** разрешён только conditional
+compact-P12 solid-contact coupon/prototype: `1` electronic channel, `12`
+events/positions, `11` moves, span `5.5 lambda`. q8 остаётся research fallback,
+заблокированным до конкретного broadband/multiresonant matching circuit; P17
+и жидкий moving contact остановлены. Следующие обязательные работы уже не
+являются ещё одним geometry-free sweep: identification реального contact
+material, finite-footprint/edge model, coupon bench, wear/debonding и
+scan-time economics. Product POD claim по текущим расчётам запрещён.
+
+### 8.20. O7: stationary two-bit global boundary
+
+После запрета движения головки относительно образца прежний compact-P12
+перестаёт быть продуктовым кандидатом. Новый контракт
+[`operator_o7_global_state_contract.md`](operator_o7_global_state_contract.md)
+проверил одну неподвижную `K3,Q4` головку с двумя глобальными бинарными
+граничными управлениями. Подробный handoff —
+[`operator_o7_stationary_state_handoff.md`](operator_o7_stationary_state_handoff.md).
+
+На новом seed/split были независимо заморожены две ветви: две зеркальные пары
+PZT-патчей с двумя пассивными RLC-нагрузками и две зеркальные пары
+переключаемой механической жёсткости. Частотное кодирование осталось честным
+matched `K3,Q1` comparator. Final test был открыт только после freeze.
+
+| Frozen architecture | Pfa95 | alpha90 | Pd ref | Pdl ref | alpha90 gain над matched Q1 |
+|---|---:|---:|---:|---:|---:|
+| PZT `K3,Q4` | `1.134%` | `285.15` | `0.987` | `0.851` | `17.84%` |
+| mechanical `K3,Q4` | `0.796%` | `270.67` | `0.996` | `0.950` | `34.16%` |
+| ideal frozen `K3,Q4` | `0.229%` | `259.44` | `0.979` | `0.976` | — |
+| FMC | `0.116%` | `220.19` | `0.984` | `0.982` | — |
+
+Обе физические ветви проходят preregistered reduced gate и показывают, что
+четыре состояния дают информацию сверх семи частот одного фиксированного
+состояния. PZT-проход близок к границе по `Pdl` и `Pfa`; mechanical имеет
+больший запас. Positive controls дали `max sigma(W)=0.98`, reflection error
+`<2.5e-15`, точную взаимность и точное схлопывание `Q4 -> Q1` при нулевой
+управляющей связи.
+
+Это coupled-modal surrogate, не coupled piezo FEM. Он не содержит явную
+геометрию блока, пьезотензор, клей, BVD terminals, switch parasitics или
+конечную механику clamp. Поэтому следующий разрешённый `O8` сохраняет обе
+замороженные ветви и повышает evidence level до plane-strain coupled physical
+model. Старый O7 test повторно для выбора геометрии не используется.
+
+### 8.21. O8: frozen plane-strain boundary realization
+
+Контракт —
+[`operator_o8_plane_strain_boundary_contract.md`](operator_o8_plane_strain_boundary_contract.md),
+сводный handoff —
+[`operator_o8_plane_strain_handoff.md`](operator_o8_plane_strain_handoff.md).
+
+O8 перенёс обе O7-ветви в конечный `202.38 x 50.60 мм` aluminium
+plane-strain block. Четыре управляющие зоны стали конечными интервалами,
+source и output остались неподвижны. PZT-пары получили одну общую электрическую
+степень свободы на пару и точный passive RL Schur complement; mechanical
+ветвь — конечные Robin stiffness и actuator mass.
+
+| Frozen branch | Amplitude/reference | Carrier min state distance | Max refinement projector error | Physical verdict |
+|---|---:|---:|---:|---|
+| PZT/RL | `0.721--0.779` | `0.0766` | `0.0498` | **pass** |
+| mechanical stiffness | `0.978--0.992` | `0.0104` | `0.0575` | **stop** |
+
+Mechanical O7 pass не пережил явную локальную границу: состояния почти не
+меняют измерительное подпространство, хотя почти не теряют амплитуду. Эта
+замороженная ветвь остановлена до явного нового resource/topology contract.
+
+Только PZT открыл новый O8 detector split:
+
+| Architecture | Pfa95 | alpha90 | Pd ref | Pdl ref | Verdict |
+|---|---:|---:|---:|---:|---|
+| same FEM head `K3,Q1` | `0.229%` | `421.65` | `0.810` | `0.778` | fail |
+| FEM PZT `K3,Q4` | `0.129%` | `316.14` | `0.90025` | `0.884` | **pass** |
+| ideal `K3,Q4` | `0.155%` | `277.94` | `0.940` | `0.937` | pass |
+| FMC | `0.075%` | `219.19` | `0.968` | `0.966` | pass |
+
+Четыре PZT-состояния улучшают `alpha90` на `25.02%` относительно той же
+FEM-головки только в `q00`. Но активный `Pd>=0.90` пройден с запасом лишь
+`0.000245`; результат считается conditional, а не robust.
+
+Изначально после O8 fabrication была запрещена до O9 из-за несогласованной
+ёмкости и слишком оптимистического `kt`. Этот запрет заменён только для одного
+ограниченного de-risking coupon решением O8M ниже. Product prototype и POD
+claim по-прежнему требуют domain-resolved PZT/adhesive, BVD/switch parasitics,
+finite specimen contact и component tolerance ensemble.
+
+### 8.22. O8M: material-realistic manufacturing freeze
+
+Перед закупкой обнаружено, что O8 использовал `kt^2=0.45`, то есть
+`kt=0.671`, тогда как публичные данные реальных bulk-PZT дают примерно
+`0.49--0.55`. Замороженная O8-геометрия была повторена без оптимизации с
+паспортными `epsilon_r`, `kt` и `Qm`; RL пересчитаны только для согласования с
+фактической площадью электрода и ёмкостью.
+
+| Material anchor | kt | C одной 20.25 x 8 x 1 мм пластины | Carrier min state distance | Amplitude/reference | Gate |
+|---|---:|---:|---:|---:|---|
+| CTS 3195HD bulk | `0.49` | `2.726 nF` | `0.0785` | `0.732--0.801` | pass |
+| CTS 3203HD bulk | `0.55` | `5.451 nF` | `0.0817` | `0.729--0.794` | pass |
+| PI PIC255 1-3 lower bound | `0.60` | `1.782 nF` | `0.1108` | `0.783--0.869` | pass |
+
+Для изготовления выбран не composite, а CTS 3195HD: это обычная bulk-плита,
+её меньшая ёмкость даёт более высокие сопротивления шунта и меньшую
+чувствительность к relay/contact parasitics. Все четыре патча округлены до
+одинаковых `20.00 x 8.00 x 1.00 мм`; outer pair сдвинута внутрь на доли
+миллиметра и сделана flush с краями блока. Повторный full-band FEM уже этой
+manufacturing geometry дал:
+
+```text
+amplitude/reference                 0.7367--0.8054
+carrier minimum state distance      0.07689 >= 0.05
+maximum raw mirror error            0.01083
+maximum reciprocity error           6.98e-16
+manufacturing gate                  PASS
+```
+
+**Терминальное решение: BUILD one coupon.** Пакет
+[`manufacturing/o8_pzt_coupon_v1/`](../manufacturing/o8_pzt_coupon_v1/README.md)
+содержит STEP, размерный чертёж, BOM, RFQ на шесть PZT-пластин, две RL-цепи,
+сборку и preregistered bench acceptance. Номинальные нагрузки после
+согласования площади равны `70.15 uH + 17.89 ohm` и
+`73.27 uH + 27.57 ohm`; финальные значения пересчитываются один раз по
+измеренной pair capacitance и полным паразитикам.
+
+Coupon имеет ровно один разрешённый repair: электрическую ретуновку по
+измеренным `C/L/R`. Если после неё minimum state distance остаётся ниже
+`0.05`, топология получает **KILL** без движения патчей, снижения gate или
+нового geometry sweep. Если coupon проходит, геометрия и parity сохраняются
+для стационарной головки; coupon сам по себе ещё не является POD-валидированным
+дефектоскопом.
+
+# Часть II. Доказательная физическая TTD-ветка
+
+Ниже сохранён прежний план линзовой ветки. Он фиксирует уже доказанные
+ограничения пассивных задержек, полосы, модовой конверсии и изготовления, но не
+является текущим порядком выбора продуктовой архитектуры.
+
+## 1. Цель физической ветки
+
+Исходная цель ветки — разработать плоскую с обоих торцов упругую линзовую
+прослойку, которая из
 одного электрического импульса формирует внутри твёрдого тела пространственно
 и временно локализованный фокус:
 

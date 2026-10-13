@@ -1,5 +1,11 @@
 *.pvd
 *.vtu
+*.jld2
+*.msh
+*.step
+*.png
+*.jpg
+*.jpeg
 *.gif
 *.mp4
 .zprofile
@@ -7,6 +13,8 @@
 tmp/
 1_models/
 .worktrees/
+/public/meta-demo/
+/public/meta-ndt/
 
 # Generated research outputs: keep only Markdown summaries in Git.
 results/**

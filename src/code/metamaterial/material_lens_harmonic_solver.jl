@@ -2,13 +2,18 @@ module MaterialLensHarmonicSolver
 
 using Gridap
 using GridapGmsh
+using LinearAlgebra
+using SparseArrays: nnz
 
 if !isdefined(parentmodule(@__MODULE__), :SinusoidalMaterialLens)
     include(joinpath(@__DIR__, "sinusoidal_material_lens.jl"))
 end
 using ..SinusoidalMaterialLens
 
-export MaterialLensHarmonicConfig, solve_material_lens_harmonic
+export MaterialLensHarmonicConfig,
+       MaterialLensResponseConfig,
+       solve_material_lens_harmonic,
+       solve_material_lens_response_matrix
 
 Base.@kwdef struct MaterialLensHarmonicConfig
     frequency_hz::Float64 = 242.0e3
@@ -22,6 +27,28 @@ Base.@kwdef struct MaterialLensHarmonicConfig
     scan_transverse_half_width_mm::Float64 = 30.0
     scan_step_mm::Float64 = 2.0
     source_excitation_tags::Vector{String} = String["Source"]
+end
+
+Base.@kwdef struct MaterialLensResponseConfig
+    frequency_hz::Float64 = 242.0e3
+    pressure_amplitude_pa::Float64 = 1.0e6
+    element_order::Int = 1
+    quadrature_degree::Int = 2
+    source_count::Int = 15
+    output_x_mm::Float64 = 33.0
+    output_y_mm::Vector{Float64} = collect(-57.4:8.2:57.4)
+end
+
+function validate(config::MaterialLensResponseConfig)
+    config.frequency_hz > 0 || throw(ArgumentError("frequency must be positive"))
+    config.pressure_amplitude_pa > 0 || throw(ArgumentError("pressure must be positive"))
+    config.element_order >= 1 || throw(ArgumentError("element order must be positive"))
+    config.quadrature_degree >= 1 || throw(ArgumentError("quadrature degree must be positive"))
+    config.source_count >= 1 || throw(ArgumentError("at least one source is required"))
+    isfinite(config.output_x_mm) || throw(ArgumentError("output x must be finite"))
+    isempty(config.output_y_mm) && throw(ArgumentError("at least one output point is required"))
+    all(isfinite, config.output_y_mm) || throw(ArgumentError("output y must be finite"))
+    config
 end
 
 function stress(material::ElasticMaterial, strain)
@@ -153,6 +180,134 @@ function solve_material_lens_harmonic(
         model,
         lens_domain,
         aluminium_domain,
+    )
+end
+
+"""
+Assemble and factor one elastic FEM matrix, then solve every individually tagged
+strip traction as a separate right-hand side. The returned response maps the
+15 source-strip coefficients to longitudinal displacement at the requested
+output points. `port_work_compliance` retains the full coupled input work
+matrix needed for accepted-power normalization.
+"""
+function solve_material_lens_response_matrix(
+    mesh_path::AbstractString,
+    lens_material::ElasticMaterial,
+    output_material::ElasticMaterial;
+    matching_material::Union{Nothing, ElasticMaterial}=nothing,
+    config::MaterialLensResponseConfig=MaterialLensResponseConfig(),
+)
+    validate(config)
+    isfile(mesh_path) || error("mesh not found: $mesh_path")
+    model = GmshDiscreteModel(mesh_path)
+    omega = 2pi * config.frequency_hz
+    reference = ReferenceFE(lagrangian, VectorValue{2, Float64}, config.element_order)
+    test_space = TestFESpace(
+        model, reference; conformity=:H1, vector_type=Vector{ComplexF64},
+    )
+    trial_space = TrialFESpace(test_space)
+
+    lens_domain = Triangulation(model; tags=["Lens"])
+    aluminium_domain = Triangulation(model; tags=["Aluminium"])
+    lens_measure = Measure(lens_domain, config.quadrature_degree)
+    aluminium_measure = Measure(aluminium_domain, config.quadrature_degree)
+    matching_measure = isnothing(matching_material) ? nothing :
+        Measure(Triangulation(model; tags=["MatchingLayer"]), config.quadrature_degree)
+    source_boundary = BoundaryTriangulation(model; tags=["Source"])
+    radiation_boundary = BoundaryTriangulation(model; tags=["RadiationBoundary"])
+    source_measure = Measure(source_boundary, config.quadrature_degree)
+    radiation_measure = Measure(radiation_boundary, config.quadrature_degree)
+    normal_source = get_normal_vector(source_boundary)
+    normal_radiation = get_normal_vector(radiation_boundary)
+    source_boundaries = [
+        BoundaryTriangulation(model; tags=["SourceStrip$(index)"])
+        for index in 1:config.source_count
+    ]
+    source_measures = [
+        Measure(boundary, config.quadrature_degree) for boundary in source_boundaries
+    ]
+    source_normals = get_normal_vector.(source_boundaries)
+
+    function material_integrand(material, u, v)
+        rho = material.density_kg_m3
+        stress(material, ε(u)) ⊙ ε(v) - rho * omega^2 * (u ⋅ v) +
+        im * omega * damping_form(material, omega, u, v)
+    end
+    function bilinear(u, v)
+        result = ∫(material_integrand(lens_material, u, v))lens_measure +
+                 ∫(material_integrand(output_material, u, v))aluminium_measure +
+                 ∫(im * omega * absorbing_displacement(
+                     u, normal_source, lens_material,
+                 ) ⋅ v)source_measure +
+                 ∫(im * omega * absorbing_displacement(
+                     u, normal_radiation, output_material,
+                 ) ⋅ v)radiation_measure
+        if !isnothing(matching_material)
+            result += ∫(material_integrand(matching_material, u, v))matching_measure
+        end
+        result
+    end
+    source_linear(index) = v -> ∫(
+        -config.pressure_amplitude_pa * (source_normals[index] ⋅ v)
+    )source_measures[index]
+
+    println("[+] assembling 15-port lens matrix at $(config.frequency_hz / 1e3) kHz")
+    matrix = assemble_matrix(bilinear, trial_space, test_space)
+    right_hand_sides = [
+        assemble_vector(source_linear(index), test_space)
+        for index in 1:config.source_count
+    ]
+    println("[+] factoring $(size(matrix, 1)) x $(size(matrix, 2)) lens matrix")
+    linear_solver = LUSolver()
+    numerical = numerical_setup(symbolic_setup(linear_solver, matrix), matrix)
+    coefficients = Matrix{ComplexF64}(
+        undef, size(matrix, 1), config.source_count,
+    )
+    temporary = similar(first(right_hand_sides))
+    output_ux_m = Matrix{ComplexF64}(
+        undef, length(config.output_y_mm), config.source_count,
+    )
+    output_uy_m = similar(output_ux_m)
+    for source_index in 1:config.source_count
+        fill!(temporary, 0)
+        solve!(temporary, numerical, right_hand_sides[source_index])
+        coefficients[:, source_index] .= temporary
+        displacement = FEFunction(trial_space, temporary)
+        for (output_index, y_mm) in enumerate(config.output_y_mm)
+            value = displacement(Point(
+                config.output_x_mm * 1.0e-3, y_mm * 1.0e-3,
+            ))
+            output_ux_m[output_index, source_index] = ComplexF64(value[1])
+            output_uy_m[output_index, source_index] = ComplexF64(value[2])
+        end
+    end
+    load_matrix = hcat(right_hand_sides...)
+    port_work_compliance = transpose(load_matrix) * coefficients
+    source_lengths_m = Float64[
+        sum(∫(1.0)measure) for measure in source_measures
+    ]
+    (
+        frequency_hz=config.frequency_hz,
+        pressure_amplitude_pa=config.pressure_amplitude_pa,
+        output_x_mm=config.output_x_mm,
+        output_y_mm=copy(config.output_y_mm),
+        output_ux_m,
+        output_uy_m,
+        port_work_compliance,
+        accepted_work=-imag.(diag(port_work_compliance)),
+        source_lengths_m,
+        reciprocity_residual=norm(
+            port_work_compliance - transpose(port_work_compliance),
+        ) / max(norm(port_work_compliance), eps(Float64)),
+        port_reflection_residual=norm(
+            reverse(reverse(port_work_compliance; dims=1); dims=2) -
+                port_work_compliance,
+        ) / max(norm(port_work_compliance), eps(Float64)),
+        reflection_residual=norm(
+            reverse(reverse(output_ux_m; dims=1); dims=2) - output_ux_m,
+        ) / max(norm(output_ux_m), eps(Float64)),
+        matrix_size=size(matrix),
+        matrix_nonzeros=nnz(matrix),
     )
 end
 

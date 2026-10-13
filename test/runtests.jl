@@ -1,9 +1,19 @@
 using Test
 using Gridap: VectorValue
-using LinearAlgebra: ⋅
+using LinearAlgebra: I, ⋅, Diagonal, Hermitian, diag, isposdef
 
 include(joinpath(@__DIR__, "..", "src", "code", "metamaterial", "ndt_benchmark.jl"))
 using .NDTBenchmark
+
+include(joinpath(
+    @__DIR__, "..", "src", "code", "metamaterial", "ndt_fullwave_harmonic_solver.jl",
+))
+using .NDTFullWaveHarmonicSolver
+
+include(joinpath(
+    @__DIR__, "..", "src", "code", "metamaterial", "ndt_fullwave_transient_solver.jl",
+))
+using .NDTFullWaveTransientSolver: NDTFullWaveTransientConfig, hann_burst
 
 @testset "shared NDT topology benchmark" begin
     config = NDTStandConfig()
@@ -19,6 +29,656 @@ using .NDTBenchmark
     @test topology_result_directory("metal_grin") ==
           joinpath("results", "topology_benchmark", "metal_grin")
     @test_throws ArgumentError topology_result_directory("Metal GRIN")
+end
+
+@testset "NDT full-wave direct transient" begin
+    config = NDTFullWaveTransientConfig()
+    @test NDTFullWaveTransientSolver.validate(config) === config
+    @test hann_burst(0.0, config.frequency_hz, config.pulse_cycles) == 0.0
+    @test hann_burst(config.pulse_cycles / config.frequency_hz, config.frequency_hz, config.pulse_cycles) ≈ 0.0 atol=1.0e-14
+    @test hann_burst(6 / config.frequency_hz, config.frequency_hz, config.pulse_cycles) == 0.0
+    @test hann_burst(1.25 / config.frequency_hz, config.frequency_hz, config.pulse_cycles) ≈ 0.5 atol=1.0e-12
+    @test_throws ArgumentError NDTFullWaveTransientSolver.validate(
+        NDTFullWaveTransientConfig(samples_per_cycle=5),
+    )
+end
+
+include(joinpath(
+    @__DIR__, "..", "src", "code", "metamaterial", "run_operator_o3_f1c_scenes.jl",
+))
+using .RunOperatorO3F1CScenes
+
+@testset "O3 F1c structural-scene contract" begin
+    contexts = RunOperatorO3F1CScenes.context_rows()
+    @test getproperty.(contexts, :id) == [:train_1, :train_2, :validation_1, :test_1]
+    @test getproperty.(contexts, :split) == [:train, :train, :validation, :test]
+    @test length(unique(getproperty.(contexts, :seed))) == length(contexts)
+    for context in contexts
+        first_draw = RunOperatorO3F1CScenes.generate_backgrounds(context.seed)
+        second_draw = RunOperatorO3F1CScenes.generate_backgrounds(context.seed)
+        @test first_draw == second_draw
+        @test length(first_draw) == 5
+        @test all(defect -> defect.kind == :circular_void, first_draw)
+        @test all(defect -> 0.6 <= defect.radius_mm <= 1.1, first_draw)
+        @test all(
+            defect -> RunOperatorO3F1CScenes.valid_background(
+                defect, filter(other -> other.id != defect.id, first_draw),
+            ),
+            first_draw,
+        )
+    end
+end
+
+@testset "NDT full-wave carrier contract" begin
+    config = NDTFullWaveHarmonicConfig(element_count=17)
+    @test NDTFullWaveHarmonicSolver.validate(config) === config
+    @test_throws ArgumentError NDTFullWaveHarmonicSolver.validate(
+        NDTFullWaveHarmonicConfig(pressure_wave_speed_m_s=2000.0, shear_wave_speed_m_s=3000.0),
+    )
+
+    include(joinpath(
+        @__DIR__, "..", "src", "code", "metamaterial", "run_operator_o3_fullwave_carrier.jl",
+    ))
+    identity_response = Matrix{ComplexF64}(I, 5, 5)
+    a_scan = (
+        id=:a, kind=:a_scan, electronic_channels=1, physical_states=1,
+        transmit_events=1, indices=Int[], states=(),
+    )
+    motion = (
+        id=:m, kind=:motion, electronic_channels=1, physical_states=1,
+        transmit_events=3, indices=[1, 3, 5], states=(),
+    )
+    @test RunOperatorO3FullWaveCarrier.project_operator(identity_response, a_scan) ≈ [1.0 + 0im]
+    @test RunOperatorO3FullWaveCarrier.project_operator(identity_response, motion) ≈
+          fill(inv(sqrt(3)) + 0im, 3)
+    @test RunOperatorO3FullWaveCarrier.relative_residual(identity_response, identity_response) == 0
+end
+
+include(joinpath(
+    @__DIR__, "..", "src", "code", "metamaterial", "measurement_operator_space.jl",
+))
+using .MeasurementOperatorSpace
+
+@testset "measurement-operator design space" begin
+    architectures = architecture_space()
+    @test MeasurementOperatorSpace.validate.(architectures) == architectures
+    @test first(architectures).id == :a_scan
+    @test last(architectures).id == :paut_oracle
+    @test count(architecture -> architecture.role == :candidate, architectures) == 8
+
+    identity_dictionary = Matrix{Float64}(I, 3, 3)
+    metrics = operator_metrics(identity_dictionary)
+    @test metrics.minimum_detectability ≈ 1.0
+    @test metrics.median_detectability ≈ 1.0
+    @test metrics.maximum_pair_coherence ≈ 0.0 atol=1.0e-14
+    @test metrics.stable_rank ≈ 3.0
+    @test metrics.numerical_rank == 3
+    @test metrics.information_logdet_nats ≈ 3 * log(2)
+
+    ambiguous_dictionary = [1.0 1.0; 0.0 0.0]
+    ambiguous = operator_metrics(ambiguous_dictionary)
+    @test ambiguous.maximum_pair_coherence ≈ 1.0
+    @test ambiguous.stable_rank ≈ 1.0
+    @test ambiguous.numerical_rank == 1
+
+    complex_dictionary = ComplexF64[1 im; im 1]
+    noise_covariance = [2.0 0.0; 0.0 2.0]
+    whitened = whiten_dictionary(complex_dictionary; noise_covariance)
+    @test whitened ≈ complex_dictionary / sqrt(2)
+    @test normalized_gram(whitened)[1, 1] ≈ 1.0
+
+    @test_throws ArgumentError normalized_gram([1.0 0.0; 0.0 0.0])
+    @test_throws ArgumentError operator_metrics(
+        identity_dictionary; noise_covariance=zeros(3, 3),
+    )
+end
+
+module OperatorO6CCompositeTests
+using Test
+using LinearAlgebra
+
+include(joinpath(
+    @__DIR__, "..", "src", "code", "metamaterial",
+    "run_operator_o6c_composite_twin.jl",
+))
+
+@testset "O6c frozen homogenized composite" begin
+    metadata = RunOperatorO6CCompositeTwin.composite_metadata()
+    @test metadata.ceramic_volume_fraction == 0.65
+    @test metadata.density_kg_m3 == 5461.0
+    @test metadata.axial_impedance_rayl == 17.0e6
+    @test metadata.positive_definite
+    @test metadata.axial_stiffness_pa * metadata.lateral_stiffness_pa >
+          metadata.cross_stiffness_pa^2
+    @test metadata.nominal_half_wave_frequency_hz ≈ 259415.2475 rtol=1.0e-9
+    material = RunOperatorO6CCompositeTwin.composite_material()
+    @test material.quality_factor == 35.0
+    basis = RunOperatorO6CCompositeTwin.dct_basis()
+    @test basis' * basis ≈ Matrix{Float64}(I, 3, 3) atol=1.0e-12
+end
+
+end
+
+module OperatorO6DIsolatedBusTests
+using Test
+using LinearAlgebra
+
+include(joinpath(
+    @__DIR__, "..", "src", "code", "metamaterial",
+    "run_operator_o6d_isolated_bus_bound.jl",
+))
+
+@testset "O6d isolated three-bus bound" begin
+    target = RunOperatorO6DIsolatedBusBound.dct_basis()
+    @test transpose(target) * target ≈ Matrix{Float64}(I, 3, 3) atol=1.0e-12
+    identity_rotation = Matrix{Float64}(I, 3, 3)
+    one = RunOperatorO6DIsolatedBusBound.sparse_internal_map(
+        target, identity_rotation, 1,
+    )
+    two = RunOperatorO6DIsolatedBusBound.sparse_internal_map(
+        target, identity_rotation, 2,
+    )
+    full = RunOperatorO6DIsolatedBusBound.sparse_internal_map(
+        target, identity_rotation, 3,
+    )
+    @test count(abs.(one.internal) .> 1.0e-12) == 17
+    @test count(abs.(two.internal) .> 1.0e-12) <= 34
+    @test full.public_transfer ≈ target atol=1.0e-12
+    four_level = RunOperatorO6DIsolatedBusBound.quantized_target(target, 4)
+    eight_level = RunOperatorO6DIsolatedBusBound.quantized_target(target, 8)
+    @test RunOperatorO6DIsolatedBusBound.transfer_metrics(
+        four_level, target,
+    ).amplitude_rms > 0.03
+    @test RunOperatorO6DIsolatedBusBound.transfer_metrics(
+        eight_level, target,
+    ).amplitude_rms < 0.03
+end
+
+end
+
+module OperatorO6EResourceForkTests
+using Test
+
+include(joinpath(
+    @__DIR__, "..", "src", "code", "metamaterial",
+    "run_operator_o6e_resource_fork.jl",
+))
+
+@testset "O6e resource fork statistics" begin
+    module_under_test = RunOperatorO6EResourceFork
+    @test module_under_test.wilson_lower_bound(50_000, 50_000) > 0.999
+    @test module_under_test.wilson_lower_bound(49_538, 50_000) > 0.99
+    @test module_under_test.wilson_lower_bound(49_500, 50_000) < 0.99
+    target = module_under_test.RunOperatorO6DIsolatedBusBound.dct_basis()
+    common_delay = fill(20.0e-9, size(target))
+    @test module_under_test.delay_rms(common_delay, target) ≈ 0.0 atol=1.0e-20
+    differential = copy(common_delay)
+    differential[1, 1] += 100.0e-9
+    @test module_under_test.delay_rms(differential, target) > 0
+end
+
+end
+
+module OperatorO6FBeamformerTests
+using Test
+using LinearAlgebra
+
+include(joinpath(
+    @__DIR__, "..", "src", "code", "metamaterial",
+    "run_operator_o6f_beamformer_network.jl",
+))
+
+@testset "O6f reciprocal Givens lattice" begin
+    module_under_test = RunOperatorO6FBeamformerNetwork
+    seed = Matrix(qr(reshape(sin.(1.0:51.0), 17, 3)).Q[:, 1:3])
+    lattice = module_under_test.synthesize_isometry_lattice(seed)
+    @test length(lattice.stages) == 45
+    @test lattice.isometry_embedding * lattice.core_rotation ≈ seed atol=1e-11
+    transfer = module_under_test.realized_transfer(
+        lattice.stages, lattice.core_rotation, 242.0e3,
+    )
+    @test real.(transfer) ≈ seed atol=1e-11
+    @test maximum(abs, imag.(transfer)) <= 1e-12
+end
+
+end
+
+module OperatorO6FMotionRiskTests
+using Test
+using LinearAlgebra
+
+include(joinpath(
+    @__DIR__, "..", "src", "code", "metamaterial",
+    "run_operator_o6f_motion_risk.jl",
+))
+
+@testset "O6f arbitrary-position motion compressor" begin
+    module_under_test = RunOperatorO6FMotionRisk
+    config = module_under_test.SurrogateConfig(
+        frequency_ratios=[0.9, 1.0, 1.1], element_count=5,
+    )
+    hypotheses = module_under_test.localization_hypotheses(
+        depths=[3.0], lateral_positions=[-0.5, 0.5],
+    )
+    positions = module_under_test.element_positions(config)
+    features = module_under_test.scan_features_at_positions(
+        hypotheses, config, positions,
+    )
+    architecture = module_under_test.motion_architecture(
+        :test_motion, collect(1:5), :test,
+    )
+    expected = module_under_test.architecture_dictionary(
+        module_under_test.response_library(hypotheses, config),
+        architecture,
+        config,
+    )
+    @test features ./ sqrt(5) ≈ expected rtol=1e-12
+    delayed = module_under_test.scan_features_at_positions(
+        hypotheses,
+        config,
+        positions;
+        delay_errors_cycles=fill(0.05, 5),
+    )
+    @test norm(delayed - features) > 0
+end
+
+end
+
+module OperatorO6GNetworkBudgetTests
+using Test
+using LinearAlgebra
+
+include(joinpath(
+    @__DIR__, "..", "src", "code", "metamaterial",
+    "run_operator_o6g_network_budget.jl",
+))
+
+@testset "O6g complete signed q8 factorization" begin
+    module_under_test = RunOperatorO6GNetworkBudget
+    left = Matrix(qr(reshape(cos.(1.0:51.0), 17, 3)).Q[:, 1:3])
+    right = Matrix(qr(reshape(sin.(1.0:9.0), 3, 3)).Q)
+    singular_values = [1.0, 0.99, 0.97]
+    output = module_under_test.F.synthesize_isometry_lattice(left)
+    first_input = module_under_test.factor_orthogonal_transform(right')
+    second_input = module_under_test.factor_orthogonal_transform(
+        output.core_rotation,
+    )
+    transfer = module_under_test.complete_network_transfer(
+        output,
+        first_input,
+        second_input,
+        singular_values,
+        242.0e3,
+    )
+    @test transfer ≈ left * Diagonal(singular_values) * right' atol=1e-11
+    @test length(output.stages) + length(first_input.stages) +
+          length(second_input.stages) == 51
+    lossy = module_under_test.complete_network_transfer(
+        output,
+        first_input,
+        second_input,
+        singular_values,
+        242.0e3;
+        coupler_insertion_loss_db=0.01,
+    )
+    @test opnorm(lossy) <= 1 + 1e-12
+end
+
+end
+
+module OperatorO6HLoadedPhysicsTests
+using Test
+using LinearAlgebra
+
+include(joinpath(
+    @__DIR__, "..", "src", "code", "metamaterial",
+    "run_operator_o6h_bvd_loading.jl",
+))
+
+@testset "O6h reciprocal scattering completion" begin
+    module_under_test = RunOperatorO6HBVDLoading
+    isometry = Matrix(qr(reshape(cos.(1.0:51.0), 17, 3)).Q[:, 1:3])
+    transfer = isometry * Diagonal([1.0, 0.99, 0.97])
+    completion = module_under_test.scattering_completion(transfer)
+    @test completion.forward' * completion.forward ≈
+          Matrix{Float64}(I, 3, 3) atol=1e-11
+    @test completion.full_scattering' * completion.full_scattering ≈
+          Matrix{Float64}(I, 23, 23) atol=1e-10
+    loaded = module_under_test.loaded_transfer(
+        completion, 1.0, zeros(17), ones(17), ones(17),
+    )
+    @test loaded.mechanical ≈ transfer atol=1e-12
+    @test norm(loaded.public_reflection) <= 1e-12
+    @test module_under_test.bvd_impedance(1.0, 35.0, 1.0, 1.0) == 1 + 0im
+end
+
+end
+
+module OperatorO6HContactPhysicsTests
+using Test
+
+include(joinpath(
+    @__DIR__, "..", "src", "code", "metamaterial",
+    "run_operator_o6h_angular_contact.jl",
+))
+
+@testset "O6h exact layered-contact positive controls" begin
+    module_under_test = RunOperatorO6HAngularContact
+    contact = module_under_test.C
+    frequency = contact.CARRIER_FREQUENCY_HZ
+    one_dimensional = contact.layer_power_transmission(
+        frequency,
+        contact.NOMINAL_THICKNESS_M,
+        contact.COUPLANT_IMPEDANCE_RAYL,
+        contact.COUPLANT_SPEED_M_S,
+    )
+    angular = module_under_test.elastic_layer_scattering(
+        frequency,
+        0.0,
+        contact.NOMINAL_THICKNESS_M,
+        contact.COUPLANT_IMPEDANCE_RAYL,
+        contact.COUPLANT_SPEED_M_S,
+    )
+    @test angular.energy_balance ≈ 1.0 atol=1e-12
+    @test angular.transmitted_power ≈ abs2(one_dimensional) atol=1e-12
+    direct = module_under_test.direct_interface_scattering(frequency, 30.0)
+    @test direct.energy_balance ≈ 1.0 atol=1e-12
+end
+
+end
+
+module OperatorO6ISolidContactTests
+using Test
+
+include(joinpath(
+    @__DIR__, "..", "src", "code", "metamaterial",
+    "run_operator_o6i_mitigation_map.jl",
+))
+
+@testset "O6i shear-transmitting solid contact" begin
+    module_under_test = RunOperatorO6IMitigationMap
+    contact = module_under_test.C
+    material = module_under_test.A.solid_material(
+        2053.6068837506846, 6122.1024, 1530.5256,
+    )
+    result = module_under_test.solid_layer_scattering(
+        contact.CARRIER_FREQUENCY_HZ,
+        45.0,
+        505.9588760330579e-6,
+        material,
+    )
+    @test result.energy_balance ≈ 1.0 atol=1e-12
+    @test result.transmitted_power > 0.9
+    @test 0 <= result.transmitted_s_fraction <= 1
+end
+
+end
+
+module OperatorO7GlobalStateTests
+using Test
+using LinearAlgebra
+using Random
+
+include(joinpath(
+    @__DIR__, "..", "src", "code", "metamaterial",
+    "run_operator_o7_global_states.jl",
+))
+
+@testset "O7 stationary two-bit modal boundary" begin
+    config = SurrogateConfig(frequency_ratios=[0.8, 1.0, 1.2])
+    parameters = o7_random_parameters(Xoshiro(707), :pzt)
+    first_states, first_scale, first_raw_sigma = o7_transfer_states(
+        :pzt, parameters, config,
+    )
+    second_states, second_scale, second_raw_sigma = o7_transfer_states(
+        :pzt, parameters, config,
+    )
+    @test first_states == second_states
+    @test first_scale == second_scale
+    @test first_raw_sigma == second_raw_sigma
+    architecture = o7_architecture(
+        :test_pzt, :pzt_2bit, first_states, :test; mechanism=:pzt,
+    )
+    checks = o7_physical_checks(architecture, parameters, config)
+    @test checks.passed
+    @test checks.maximum_sigma <= 0.98 + 1.0e-12
+    @test checks.reflection_error <= 1.0e-10
+    @test checks.reciprocity_error <= 1.0e-10
+    @test checks.minimum_state_distance > 1.0e-4
+    @test checks.zero_control_collapse == 0.0
+    @test all(
+        imag(o7_feedback(
+            :pzt, 1, frequency, parameters.strength_a,
+            parameters.resonance_a, parameters.quality_a, parameters.loss_a,
+        )) >= 0
+        for frequency in config.frequency_ratios
+    )
+
+    mechanical_parameters = o7_random_parameters(Xoshiro(708), :mechanical)
+    mechanical_states, _, _ = o7_transfer_states(
+        :mechanical, mechanical_parameters, config,
+    )
+    mechanical = o7_architecture(
+        :test_mechanical, :mechanical_2bit, mechanical_states, :test;
+        mechanism=:mechanical,
+    )
+    @test o7_physical_checks(mechanical, mechanical_parameters, config).passed
+
+    hypotheses = localization_hypotheses(
+        depths=[3.0], lateral_positions=[-0.5, 0.5],
+    )
+    library = response_library(hypotheses, config)
+    dictionary = o7_compress_library(library, architecture, config)
+    @test size(dictionary) == (4 * 3^2 * 3, 2)
+end
+
+end
+
+module OperatorO8PlaneStrainBoundaryTests
+using Test
+using LinearAlgebra
+using Random
+
+include(joinpath(
+    @__DIR__, "..", "src", "code", "metamaterial",
+    "operator_o8_boundary_mesher.jl",
+))
+include(joinpath(
+    @__DIR__, "..", "src", "code", "metamaterial",
+    "operator_o8_plane_strain_solver.jl",
+))
+
+using .OperatorO8BoundaryMesher
+using .OperatorO8PlaneStrainSolver
+
+@testset "O8 frozen plane-strain boundary physics" begin
+    geometry = O8BoundaryGeometry(
+        aperture_height_m=0.20,
+        block_length_m=0.05,
+        position_a=0.20,
+        width_a=0.10,
+        position_b=0.90,
+        width_b=0.11,
+        mesh_size_m=0.002,
+    )
+    @test OperatorO8BoundaryMesher.validate(geometry) === geometry
+    intervals = control_intervals(geometry)
+    @test intervals.a_minus[1] ≈ -intervals.a_plus[2]
+    @test intervals.a_minus[2] ≈ -intervals.a_plus[1]
+    @test intervals.b_minus[1] ≈ -intervals.b_plus[2]
+    @test intervals.b_plus[2] == geometry.aperture_height_m / 2
+
+    pzt = O8PZTBoundary()
+    load = O8Load(inductance_h=95e-6, resistance_ohm=25.0)
+    @test OperatorO8PlaneStrainSolver.validate(pzt) === pzt
+    @test OperatorO8PlaneStrainSolver.validate(load) === load
+    omega = 2pi * 242e3
+    capacitance = 4e-9
+    open_coefficient = OperatorO8PlaneStrainSolver.electrical_coefficient(
+        0, omega, capacitance, load,
+    )
+    loaded_coefficient = OperatorO8PlaneStrainSolver.electrical_coefficient(
+        1, omega, capacitance, load,
+    )
+    @test open_coefficient ≈ inv(capacitance)
+    @test imag(loaded_coefficient) > 0
+
+    mechanical = O8MechanicalBoundary(
+        stiffness_a_n_m3=1e12,
+        stiffness_b_n_m3=2e12,
+        loss_a=0.03,
+        loss_b=0.10,
+    )
+    @test OperatorO8PlaneStrainSolver.validate(mechanical) === mechanical
+    rng = Xoshiro(808)
+    transfer = randn(rng, ComplexF64, 17, 3)
+    @test state_projector_distance(transfer, transfer) <= 1e-12
+end
+
+end
+
+include(joinpath(
+    @__DIR__, "..", "src", "code", "metamaterial", "elastic_operator_surrogate.jl",
+))
+using .ElasticOperatorSurrogate
+
+@testset "dimensionless elastic operator surrogate" begin
+    config = SurrogateConfig(frequency_ratios=[0.9, 1.1], element_count=5)
+    @test ElasticOperatorSurrogate.validate(config) === config
+    @test element_positions(config) == [-4.0, -2.0, 0.0, 2.0, 4.0]
+
+    hypotheses = localization_hypotheses(
+        depths=[3.0, 4.0], lateral_positions=[-1.0, 0.0, 1.0],
+    )
+    @test length(hypotheses) == 6
+    @test mirror_hypothesis_index(hypotheses) == [3, 2, 1, 6, 5, 4]
+
+    library = response_library(hypotheses, config)
+    @test size(library) == (5, 5, 2, 6)
+    @test maximum_reciprocity_error(library) <= 1.0e-12
+    @test maximum_mirror_error(library, hypotheses) <= 1.0e-12
+
+    @test sum(abs2, uniform_port(config)) ≈ 1.0
+    @test sum(abs2, fixed_focus_port(1.0, 3.5, 0.0, config)) ≈ 1.0
+    @test sum(abs2, dispersive_port(1.0, config; symmetry=:even)) ≈ 1.0
+    ports = cosine_ports(2, config)
+    @test ports' * ports ≈ Matrix{Float64}(I, 2, 2)
+
+    one_port = one_port_dictionary(library, _ -> ComplexF64.(uniform_port(config)), config)
+    two_port = multiport_dictionary(library, ports, config)
+    full = fmc_dictionary(library, config)
+    @test size(one_port) == (2, 6)
+    @test size(two_port) == (8, 6)
+    @test size(full) == (50, 6)
+
+    compressed_1, energy_1, _ = ideal_compression_dictionary(full, 1)
+    compressed_2, energy_2, _ = ideal_compression_dictionary(full, 2)
+    @test size(compressed_1) == (1, 6)
+    @test size(compressed_2) == (2, 6)
+    @test 0 < energy_1 <= energy_2 <= 1
+
+    @test_throws ArgumentError ElasticOperatorSurrogate.validate(
+        SurrogateConfig(element_count=4),
+    )
+end
+
+module CausalOperatorScriptTests
+using Test
+using LinearAlgebra
+using Random
+
+include(joinpath(
+    @__DIR__,
+    "..",
+    "src",
+    "code",
+    "metamaterial",
+    "optimize_operator_multistate_codebooks.jl",
+))
+
+@testset "causal and multistate operator constraints" begin
+    frequencies = [0.8, 1.0, 1.2]
+    spectrum = hann_burst_spectrum(frequencies; sample_count=2001)
+    @test length(spectrum) == 3
+    @test spectrum[2] > spectrum[1]
+    @test spectrum[2] > spectrum[3]
+
+    covariance = frequency_covariance(frequencies, 2; model=:correlated)
+    @test size(covariance) == (6, 6)
+    @test isposdef(Hermitian(covariance))
+
+    rng = Xoshiro(17)
+    raw_ports = randn(rng, 7, 4)
+    ports = causal_orthonormal_columns(raw_ports, 4)
+    static_ports, _, static_sigma = frequency_ports(
+        ports, 0.8; model=:constant_contractive,
+    )
+    @test opnorm(static_ports) <= 1 + 1.0e-12
+    @test static_sigma <= 1 + 1.0e-12
+
+    complex_ports = ports .* exp.(2pi * im .* rand(rng, 7, 4))
+    delay_ports, sigma_before, sigma_after = frequency_ports(
+        complex_ports, 0.8; model=:delay_contractive,
+    )
+    @test sigma_before >= sigma_after
+    @test opnorm(delay_ports) <= 1 + 1.0e-12
+    @test sigma_after <= 1 + 1.0e-12
+
+    hypotheses = [
+        ElasticOperatorSurrogate.DefectHypothesis(:left, 3.0, -1.0, Matrix{Float64}(I, 2, 2)),
+        ElasticOperatorSurrogate.DefectHypothesis(:right, 3.0, 1.0, Matrix{Float64}(I, 2, 2)),
+    ]
+    first_state = ComplexF64[1 0; 0 1; 1 1]
+    second_state = ComplexF64[1 1; 1 -1; 0 1]
+    base_covariance = Matrix{Float64}(I, 3, 3)
+    _, combined, combined_covariance = combined_state_operator(
+        [first_state, second_state], base_covariance, hypotheses,
+    )
+    @test combined == vcat(first_state, second_state) / sqrt(2)
+    @test combined_covariance == Matrix{Float64}(I, 6, 6)
+    @test vec(sum(abs2, combined; dims=1)) ≈
+          (vec(sum(abs2, first_state; dims=1)) +
+           vec(sum(abs2, second_state; dims=1))) / 2
+end
+
+end
+
+include(joinpath(
+    @__DIR__,
+    "..",
+    "src",
+    "code",
+    "metamaterial",
+    "operator_o3_statistics.jl",
+))
+using .OperatorO3Statistics
+
+@testset "O3 paired-clutter decision statistics" begin
+    dictionary = ComplexF64[1 0; 0 1; 1 1]
+    empty_clutter = zeros(ComplexF64, 3, 0)
+    @test precision_dictionary(dictionary, empty_clutter) == dictionary
+
+    clutter = ComplexF64[1; 0; 0;;]
+    precision_applied = precision_dictionary(dictionary, clutter)
+    @test precision_applied ≈ Diagonal([0.5, 1.0, 1.0]) * dictionary
+
+    output_covariance = matched_output_covariance(precision_applied, clutter)
+    @test size(output_covariance) == (2, 2)
+    @test isposdef(Hermitian(
+        output_covariance + 1.0e-9 * Matrix{Float64}(I, 2, 2),
+    ))
+    factor = OperatorO3Statistics.covariance_factor(output_covariance)
+    @test size(factor) == (2, 2)
+
+    means = matched_mean(precision_applied, dictionary)
+    scores, indices = normalized_scores(means, max.(real.(diag(means)), eps()))
+    @test length(scores) == 2
+    @test indices == [1, 2]
+
+    @test 0.01 < wilson_upper_bound(100, 10_000) < 0.0125
+    @test crossing_amplitude([1.0, 2.0, 4.0], [0.1, 0.8, 0.95], 0.9) ≈
+          exp(log(2.0) + (0.1 / 0.15) * (log(4.0) - log(2.0)))
+    @test crossing_amplitude([1.0, 2.0], [0.1, 0.2], 0.9) == Inf
 end
 
 include(joinpath(@__DIR__, "..", "src", "code", "metamaterial", "profiles.jl"))
@@ -1544,3 +2204,8 @@ end
     @test minimum_gap_mm(LegacySinusoidalProfile(3.6), config) > 0
     @test isnothing(validate_geometry(LegacySinusoidalProfile(3.6), config))
 end
+
+include("operator_time_reversal_audit_tests.jl")
+include("sinusoidal_waveguide_temporal_reversal_tests.jl")
+include("material_lens_response_matrix_tests.jl")
+include("sinusoidal_waveguide_broadband_matrix_tests.jl")
