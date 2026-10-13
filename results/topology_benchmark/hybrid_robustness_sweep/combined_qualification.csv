@@ -1,0 +1,3 @@
+qualification,one_way_excess_loss_db,maximum_profile_delay_error_ns,differential_phase_ripple_deg,phase_ripple_phase_deg,absolute_mode_conversion_fraction,extra_ringing_penalty_db,echo_mf,echo_energy,hybrid_to_pure_advantage_db,echo_to_ringing_db,pulse_broadening_ratio,pulse_correlation,conditional_gate_pass,continue_2db_gate_pass
+qualification_target,0.1,-100.0,5.0,0.0,0.05,6.0,1.3021168190692237e-5,1.7717465103121448e-10,0.5344269813634797,11.115092846773978,1.016949152542373,0.9963488648683604,true,false
+relaxed_screen,0.15,100.0,10.0,0.0,0.06,6.0,1.2591822214931512e-5,1.696676229467274e-10,0.24319967375965992,10.823865539170159,1.033898305084746,0.9815471176898843,true,false
