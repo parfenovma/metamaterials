@@ -1,7 +1,6 @@
 module MultimodePortHarmonicSolver
 
 using Gridap
-using GridapGmsh
 using LinearAlgebra
 using SparseArrays
 
@@ -215,9 +214,19 @@ function propagating_amplitudes(state, tag, modes)
     ]
 end
 
+function load_discrete_model(mesh_path)
+    if endswith(lowercase(mesh_path), ".json")
+        return DiscreteModelFromFile(mesh_path)
+    end
+    # Load GridapGmsh only for legacy `.msh` callers. JSON callers avoid
+    # initializing Gmsh's OpenMP runtime alongside the sparse solver.
+    @eval import GridapGmsh
+    GridapGmsh.GmshDiscreteModel(mesh_path)
+end
+
 """Assemble frequency-independent volume matrices once for a frequency sweep."""
 function prepare_multimode_model(mesh_path, material; config=MultimodePortConfig())
-    model=endswith(lowercase(mesh_path),".json") ? DiscreteModelFromFile(mesh_path) : GmshDiscreteModel(mesh_path)
+    model=load_discrete_model(mesh_path)
     reference=ReferenceFE(lagrangian,VectorValue{2,Float64},config.element_order)
     test_space=TestFESpace(model,reference;conformity=:H1,vector_type=Vector{ComplexF64})
     trial_space=TrialFESpace(test_space)
@@ -247,8 +256,7 @@ function solve_multimode_port_harmonic(
     omega = 2pi * config.frequency_hz
     rho = material.density_kg_m3
     if isnothing(prepared)
-    model = endswith(lowercase(mesh_path), ".json") ?
-        DiscreteModelFromFile(mesh_path) : GmshDiscreteModel(mesh_path)
+    model = load_discrete_model(mesh_path)
     reference = ReferenceFE(lagrangian, VectorValue{2, Float64}, config.element_order)
     test_space = TestFESpace(
         model, reference; conformity=:H1, vector_type=Vector{ComplexF64},
