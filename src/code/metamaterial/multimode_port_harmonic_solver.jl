@@ -4,8 +4,8 @@ using Gridap
 using LinearAlgebra
 using SparseArrays
 
-if !isdefined(parentmodule(@__MODULE__), :SinusoidalMaterialLens)
-    Base.include(parentmodule(@__MODULE__), joinpath(@__DIR__, "sinusoidal_material_lens.jl"))
+if !isdefined(parentmodule(@__MODULE__), :ElasticMaterials)
+    Base.include(parentmodule(@__MODULE__), joinpath(@__DIR__, "elastic_materials.jl"))
 end
 if !isdefined(parentmodule(@__MODULE__), :ElasticPortModes)
     Base.include(parentmodule(@__MODULE__), joinpath(@__DIR__, "port_mode_solver.jl"))
@@ -13,7 +13,7 @@ end
 if !isdefined(parentmodule(@__MODULE__), :ElasticModalProjection)
     Base.include(parentmodule(@__MODULE__), joinpath(@__DIR__, "modal_projection.jl"))
 end
-using ..SinusoidalMaterialLens
+using ..ElasticMaterials
 using ..ElasticPortModes
 using ..ElasticModalProjection
 

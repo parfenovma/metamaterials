@@ -42,13 +42,6 @@ function pilot_profiles()
         profiles.ExponentialProfile(PILOT_AMPLITUDE_MM; periods=2, sharpness=3.0),
         profiles.PowerProfile(PILOT_AMPLITUDE_MM; periods=2, power=2.0),
         profiles.PowerProfile(PILOT_AMPLITUDE_MM; periods=2, power=4.0),
-        profiles.RoundedNotchProfile(
-            PILOT_AMPLITUDE_MM;
-            notch_count=4,
-            notch_width_mm=1.4,
-            end_margin_mm=1.2,
-        ),
-        profiles.LegacySinusoidalProfile(PILOT_AMPLITUDE_MM),
     ]
 end
 
@@ -175,13 +168,6 @@ function profile_row(
     elseif profile isa profiles.PowerProfile
         shape_parameter_name = "power"
         shape_parameter_value = profile.power
-    elseif profile isa profiles.LegacySinusoidalProfile
-        shape_parameter_name = "correction_percent"
-        shape_parameter_value = profile.correction_percent
-    elseif profile isa profiles.RoundedNotchProfile
-        shape_parameter_name = "notch_width_mm"
-        shape_parameter_value = profile.notch_width_mm
-        periods = profile.notch_count
     end
 
     (

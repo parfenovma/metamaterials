@@ -132,8 +132,7 @@ function generate_meshes(
 end
 
 function main()
-    # Legacy is the default so existing filenames and datasets remain usable.
-    profiles = WallProfile[LegacySinusoidalProfile(A) for A in DEFAULT_AMPLITUDES]
+    profiles = WallProfile[SinusoidalProfile(A; periods=2) for A in DEFAULT_AMPLITUDES]
     println("=== Generating meshes ===")
     generate_meshes(profiles)
     println("=== Generation completed ===")

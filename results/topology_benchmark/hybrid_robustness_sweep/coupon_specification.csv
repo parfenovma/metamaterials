@@ -1,6 +1,0 @@
-parameter,break_even_limit,censored,proposed_coupon_gate
-one_way_excess_loss_db,0.48,false,0.1
-maximum_profile_delay_error_ns,610.0,false,100.0
-differential_phase_ripple_deg,26.5,false,5.0
-absolute_mode_conversion_fraction,0.13701874875866188,false,0.05
-extra_ringing_penalty_db,17.55,false,6.0

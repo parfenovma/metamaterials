@@ -17,7 +17,7 @@ else
     using JLD2, Gridap, LinearAlgebra
     include(joinpath(@__DIR__,"multimode_port_harmonic_solver.jl"))
     using .MultimodePortHarmonicSolver
-    using .SinusoidalMaterialLens: ElasticMaterial
+    using .ElasticMaterials: ElasticMaterial
     using .ElasticPortModes
     include(joinpath(@__DIR__,"harmonic_solver.jl"))
     using .HarmonicElasticity

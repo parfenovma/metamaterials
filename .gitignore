@@ -13,6 +13,7 @@
 tmp/
 1_models/
 .worktrees/
+.scratch/
 /public/meta-demo/
 /public/meta-ndt/
 

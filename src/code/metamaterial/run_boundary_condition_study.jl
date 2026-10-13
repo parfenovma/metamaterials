@@ -26,7 +26,6 @@ const TRANSMISSION_CASES = [
     (id="exponential_k3", label="exponential κ=3", slug="exp_A_2.5_N_2_K_3.0_STG"),
     (id="power_p2", label="power p=2", slug="pow_A_2.5_N_2_P_2.0_STG"),
     (id="power_p4", label="power p=4", slug="pow_A_2.5_N_2_P_4.0_STG"),
-    (id="legacy", label="legacy", slug="A_2.5"),
 ]
 
 function absorbing_signal_path(slug)

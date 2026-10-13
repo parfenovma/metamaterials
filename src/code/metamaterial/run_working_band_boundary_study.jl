@@ -69,21 +69,6 @@ const TOPOLOGIES = [
         label="power p=4",
         profile=PowerProfile(2.5; periods=2, power=4.0),
     ),
-    (
-        id="rounded_notch",
-        label="rounded U-notch",
-        profile=RoundedNotchProfile(
-            2.5;
-            notch_count=4,
-            notch_width_mm=1.4,
-            end_margin_mm=1.2,
-        ),
-    ),
-    (
-        id="legacy",
-        label="legacy",
-        profile=LegacySinusoidalProfile(2.5),
-    ),
 ]
 
 frequency_khz(frequency_hz::Real) = Float64(frequency_hz) / 1.0e3

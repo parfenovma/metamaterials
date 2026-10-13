@@ -300,7 +300,7 @@ end
 
 function main()
     amplitudes = [0.0, 0.6, 1.2, 1.6, 1.9, 2.2, 2.5, 2.6, 2.7, 2.8, 3.0, 3.2, 3.4, 3.6]
-    profiles = WallProfile[LegacySinusoidalProfile(A) for A in amplitudes]
+    profiles = WallProfile[SinusoidalProfile(A; periods=2) for A in amplitudes]
     simulation = SimulationConfig()
     println("=== Start evaluation: $(Threads.nthreads()) threads ===")
     run_sweep(profiles; simulation)

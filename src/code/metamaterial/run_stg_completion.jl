@@ -17,7 +17,7 @@ else
     using Gridap
     include(joinpath(@__DIR__,"multimode_port_harmonic_solver.jl"))
     using .MultimodePortHarmonicSolver, .ElasticPortModes
-    using .SinusoidalMaterialLens:ElasticMaterial
+    using .ElasticMaterials:ElasticMaterial
 end
 
 core_length(n)=0.8+(n+0.5)*6.48

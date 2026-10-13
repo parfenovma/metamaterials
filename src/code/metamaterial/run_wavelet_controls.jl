@@ -10,7 +10,6 @@ const WAVELET_CONTROL_CASES = [
     (slug="sin_A_2.5_N_2_STG", carrier_khz=220.0),
     (slug="pow_A_2.5_N_2_P_4.0_STG", carrier_khz=220.0),
     (slug="exp_A_2.5_N_2_K_3.0_STG", carrier_khz=240.0),
-    (slug="A_2.5", carrier_khz=240.0),
 ]
 
 function signal_path(slug, carrier_khz)

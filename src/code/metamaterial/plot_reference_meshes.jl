@@ -53,16 +53,6 @@ const REFERENCE_MESH_CASES = [
         title="Power, p=4, g=4.5 mm",
         filename="mesh_pow_A_2.5_N_2_P_4.0_STG.msh",
     ),
-    (
-        id="rounded_notch",
-        title="Rounded U-notch, N=4, g=4.5 mm",
-        filename="mesh_notch_A_2.5_N_4_W_1.4_B_STG.msh",
-    ),
-    (
-        id="legacy",
-        title="Legacy sinusoidal, A=2.5 mm",
-        filename="mesh_A_2.5.msh",
-    ),
 ]
 
 function triangle_segments(mesh_path)
